@@ -1,0 +1,2456 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SupSpace — testnet3 P2FK social</title>
+  <meta name="description" content="SupSpace — censorship-free P2FK social layer on Bitcoin testnet3">
+  <style>
+    :root {
+      --bg:#000;--surface:#16181c;--border:#2f3336;--text:#e7e9ea;--muted:#71767b;
+      --accent:#1d9bf0;--accent-h:#1a8cd8;--accent-bg:rgba(29,155,240,.1);
+      --danger:#f4212e;--danger-bg:rgba(244,33,46,.1);
+      --good:#00ba7c;--good-bg:rgba(0,186,124,.1);
+      --warn:#ffd400;--warn-bg:rgba(255,212,0,.1);
+      --overlay:rgba(0,0,0,.65);
+    }
+    *{box-sizing:border-box;margin:0;padding:0}
+    html{scroll-behavior:smooth}
+    body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;min-height:100vh}
+    a{color:var(--accent);text-decoration:none}
+    a:hover{text-decoration:underline}
+    button{font:inherit;cursor:pointer}
+    img{max-width:100%}
+    .hidden{display:none!important}
+
+    /* ── LAYOUT ── */
+    .layout{max-width:1270px;margin:0 auto;display:grid;grid-template-columns:275px 1fr 350px;min-height:100vh;align-items:start}
+    @media(max-width:1180px){.layout{grid-template-columns:88px 1fr 350px}.nav-label,.brand-text,.wallet-mini-detail{display:none}}
+    @media(max-width:900px){.layout{grid-template-columns:68px 1fr}.r-sidebar{display:none}}
+    @media(max-width:600px){
+      .layout{grid-template-columns:1fr}
+      .l-sidebar{position:fixed;bottom:0;left:0;right:0;height:54px;z-index:100;flex-direction:row;padding:0 8px;justify-content:space-around;border-top:1px solid var(--border);border-right:none;background:var(--bg)}
+      .brand,.btn-new-post,.wallet-mini{display:none}
+      .fab{display:flex!important}
+      .nav-item{flex-direction:column;gap:2px;padding:6px 10px;font-size:.6rem}
+    }
+
+    /* ── LEFT SIDEBAR ── */
+    .l-sidebar{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;border-right:1px solid var(--border);padding:0 12px;overflow-y:auto;gap:0}
+    .brand{display:flex;align-items:center;gap:12px;padding:12px;border-radius:9999px;color:var(--text);transition:background .15s;text-decoration:none;margin:4px 0 2px}
+    .brand:hover{background:rgba(255,255,255,.08)}
+    .brand-logo{width:34px;height:34px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;color:#fff;flex-shrink:0}
+    .brand-text{font-size:1.2rem;font-weight:800}
+    .nav-links{display:flex;flex-direction:column;gap:2px;width:100%}
+    .nav-item{display:flex;align-items:center;gap:20px;padding:12px;border-radius:9999px;color:var(--text);background:none;border:none;text-align:left;width:100%;font-size:1.15rem;font-weight:400;transition:background .15s}
+    .nav-item:hover{background:rgba(255,255,255,.08)}
+    .nav-item.active{font-weight:700}
+    .nav-item svg{flex-shrink:0}
+    .btn-new-post{margin:16px 0;padding:14px 32px;border-radius:9999px;background:var(--accent);color:#fff;font-weight:700;font-size:1.05rem;border:none;width:90%;transition:background .15s}
+    .btn-new-post:hover{background:var(--accent-h)}
+    .wallet-mini{margin-top:auto;margin-bottom:12px;display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:9999px;border:none;background:none;color:var(--text);cursor:pointer;width:100%;text-align:left;transition:background .15s}
+    .wallet-mini:hover{background:rgba(255,255,255,.08)}
+    .wallet-mini-avi{width:40px;height:40px;border-radius:50%;object-fit:cover;background:#222;flex-shrink:0}
+    .wallet-mini-detail{min-width:0}
+    .wallet-mini-name{font-weight:700;font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .wallet-mini-addr{color:var(--muted);font-size:.76rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:monospace}
+
+    /* ── MAIN ── */
+    .main-col{border-right:1px solid var(--border);min-height:100vh}
+    .view{display:none}
+    .view.active{display:block}
+    .col-header{position:sticky;top:0;z-index:10;background:rgba(0,0,0,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
+    .col-header-inner{display:flex;align-items:center;justify-content:space-between;height:53px;padding:0 16px}
+    .col-title{font-size:1.1rem;font-weight:700}
+    .tab-bar{display:flex;border-bottom:1px solid var(--border)}
+    .tab-btn{flex:1;padding:16px 8px;background:none;border:none;color:var(--muted);font-size:.93rem;font-weight:500;cursor:pointer;position:relative;transition:color .15s}
+    .tab-btn:hover{background:rgba(255,255,255,.04);color:var(--text)}
+    .tab-btn.active{color:var(--text);font-weight:700}
+    .tab-btn.active::after{content:'';position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:56px;height:4px;background:var(--accent);border-radius:9999px}
+
+    /* ── INLINE COMPOSE ── */
+    .inline-compose{display:flex;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border)}
+    .compose-avi{width:40px;height:40px;border-radius:50%;flex-shrink:0;object-fit:cover;background:#222;cursor:pointer}
+    .compose-right{flex:1;min-width:0}
+    .compose-ta{width:100%;background:none;border:none;color:var(--text);font-size:1.1rem;resize:none;min-height:48px;font-family:inherit;outline:none;padding:6px 0}
+    .compose-ta::placeholder{color:var(--muted)}
+    .compose-actions{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border);padding-top:8px;margin-top:4px}
+    .compose-icon-btns{display:flex;gap:2px}
+    .c-icon-btn{width:34px;height:34px;border-radius:50%;border:none;background:none;color:var(--accent);display:flex;align-items:center;justify-content:center;transition:background .15s;cursor:pointer}
+    .c-icon-btn:hover{background:var(--accent-bg)}
+    .post-btn{padding:8px 18px;border-radius:9999px;background:var(--accent);color:#fff;font-weight:700;font-size:.88rem;border:none;transition:background .15s}
+    .post-btn:hover{background:var(--accent-h)}
+    .post-btn:disabled{opacity:.5;cursor:not-allowed}
+
+    /* ── TWEET ── */
+    .tweet{display:flex;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);transition:background .15s;cursor:pointer}
+    .tweet:hover{background:rgba(255,255,255,.02)}
+    .tweet-avi{width:40px;height:40px;border-radius:50%;object-fit:cover;background:#222;flex-shrink:0;align-self:flex-start}
+    .tweet-body{flex:1;min-width:0}
+    .tweet-header{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:2px;font-size:.93rem}
+    .tweet-name{font-weight:700;cursor:pointer}
+    .tweet-name:hover{text-decoration:underline}
+    .tweet-handle,.tweet-time{color:var(--muted);font-size:.88rem}
+    .badge-v{display:inline-flex;align-items:center;gap:2px;padding:1px 5px;border-radius:999px;font-size:.7rem;font-weight:600;background:var(--good-bg);color:var(--good);border:1px solid rgba(0,186,124,.35)}
+    .badge-unoff{background:var(--danger-bg);color:var(--danger);border:1px solid rgba(244,33,46,.35)}
+    .tweet-text{font-size:.93rem;line-height:1.5;word-break:break-word;white-space:pre-wrap;margin-bottom:6px}
+    .tweet-text .tag{color:var(--accent);cursor:pointer}
+    .tweet-text .tag:hover{text-decoration:underline}
+    .tweet-text .mention{color:var(--accent);cursor:pointer}
+    .tweet-text .mention:hover{text-decoration:underline}
+    .tweet-text .cref{color:var(--warn);font-size:.82rem;font-family:monospace}
+    .tweet-media{margin:8px 0;border-radius:16px;overflow:hidden;border:1px solid var(--border);max-height:300px}
+    .tweet-media img,.tweet-media video{width:100%;max-height:300px;object-fit:cover;display:block}
+    .tweet-media audio{width:100%;padding:8px}
+    .tweet-media-file{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;border:1px solid var(--border);font-size:.82rem;font-family:monospace;color:var(--muted);word-break:break-all;margin:6px 0}
+    .tweet-actions{display:flex;gap:0;margin-top:6px;margin-left:-8px;align-items:center;flex-wrap:wrap}
+    .tweet-metrics{display:flex;gap:12px;margin:6px 0 0 0;color:var(--muted);font-size:.78rem}
+    .tweet-metrics span{display:inline-flex;gap:4px;align-items:center}
+    .poll-card{margin-top:8px;border:1px solid var(--border);border-radius:12px;padding:10px;background:rgba(255,255,255,.02)}
+    .poll-title{font-size:.9rem;font-weight:700;margin-bottom:8px}
+    .poll-opt{margin:6px 0}
+    .poll-opt-row{display:flex;justify-content:space-between;font-size:.78rem;color:var(--muted);margin-bottom:4px}
+    .poll-bar-wrap{height:7px;border-radius:6px;background:#2a2a2a;overflow:hidden}
+    .poll-bar{height:100%;width:0;background:linear-gradient(90deg,#6200ea,#bb86fc)}
+    .poll-calc-btn{margin-top:8px;padding:6px 10px;border-radius:999px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-size:.76rem;cursor:pointer}
+    .tw-act{display:flex;align-items:center;gap:5px;padding:6px 10px;border:none;background:none;color:var(--muted);font-size:.82rem;border-radius:9999px;cursor:pointer;transition:color .15s,background .15s}
+    .tw-act:hover{background:var(--accent-bg);color:var(--accent)}
+    .tw-act.like:hover{background:var(--danger-bg);color:var(--danger)}
+
+    /* ── PROFILE PAGE ── */
+    .profile-banner{height:192px;background:linear-gradient(135deg,#1a3a6e,#1d9bf0);position:relative}
+    .profile-avi-wrap{position:absolute;bottom:-56px;left:16px}
+    .profile-avi-lg{width:112px;height:112px;border-radius:50%;border:4px solid var(--bg);object-fit:cover;background:#333}
+    .profile-top-bar{display:flex;justify-content:flex-end;padding:12px 16px}
+    .profile-info{padding:64px 16px 12px}
+    .profile-name{font-size:1.2rem;font-weight:700}
+    .profile-handle{color:var(--muted);font-size:.93rem;margin-bottom:6px}
+    .profile-bio{font-size:.93rem;margin:6px 0}
+    .profile-meta-row{display:flex;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:.85rem;margin:6px 0}
+    .profile-stats-row{display:flex;gap:20px;margin:8px 0;font-size:.88rem}
+    .stat-val{font-weight:700;color:var(--text)}
+    .btn-edit-profile{padding:8px 18px;border-radius:9999px;border:1px solid var(--border);background:none;color:var(--text);font-weight:700;font-size:.9rem;transition:background .15s}
+    .btn-edit-profile:hover{background:rgba(255,255,255,.08)}
+    .profile-act-row{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+
+    /* ── FEED STATES ── */
+    .feed-loading,.feed-empty,.feed-err{padding:40px 16px;text-align:center;color:var(--muted);font-size:.95rem}
+    .feed-err{color:var(--danger)}
+    .spinner{width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 12px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* ── RIGHT SIDEBAR ── */
+    .r-sidebar{padding:12px 16px;position:sticky;top:0;height:100vh;overflow-y:auto}
+    .r-search-box{position:relative;margin-bottom:14px}
+    .r-search-input{width:100%;background:#202327;border:1px solid transparent;border-radius:9999px;padding:10px 16px 10px 44px;color:var(--text);font:inherit;font-size:.93rem;transition:border-color .15s,background .15s}
+    .r-search-input:focus{outline:none;background:var(--bg);border-color:var(--accent)}
+    .r-search-input::placeholder{color:var(--muted)}
+    .r-search-icon{position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none}
+    .sidebar-card{background:var(--surface);border-radius:16px;padding:16px;margin-bottom:14px}
+    .sidebar-card-title{font-size:1.05rem;font-weight:800;margin-bottom:10px}
+    .trend-item{padding:8px 0;cursor:pointer;border-radius:6px;transition:background .15s}
+    .trend-item:hover{background:rgba(255,255,255,.04);margin:0 -8px;padding:8px}
+    .trend-cat{font-size:.74rem;color:var(--muted)}
+    .trend-kw{font-weight:700;font-size:.93rem}
+    .trend-n{font-size:.78rem;color:var(--muted)}
+    .social-item{display:flex;align-items:center;gap:10px;padding:8px 0}
+    .social-item-main{min-width:0;flex:1}
+    .social-item-title{font-weight:700;font-size:.86rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .social-item-sub{font-size:.74rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .tiny-link-btn{background:none;border:none;color:var(--accent);font-size:.8rem;padding:6px 0 0;cursor:pointer}
+    .tiny-link-btn:hover{text-decoration:underline}
+
+    /* ── FAB ── */
+    .fab{display:none;position:fixed;bottom:72px;right:16px;width:56px;height:56px;border-radius:50%;background:var(--accent);border:none;color:#fff;font-size:1.5rem;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(0,0,0,.5);z-index:50;transition:background .15s}
+    .fab:hover{background:var(--accent-h)}
+
+    /* ── MODALS ── */
+    .modal-overlay{position:fixed;inset:0;background:var(--overlay);z-index:200;display:flex;align-items:flex-start;justify-content:center;padding-top:5vh;overflow-y:auto}
+    .modal-overlay.hidden{display:none}
+    .modal{background:var(--bg);border-radius:16px;width:100%;max-width:600px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.9)}
+    .modal-hdr{display:flex;align-items:center;gap:12px;padding:10px 16px;position:sticky;top:0;background:rgba(0,0,0,.85);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);z-index:1}
+    .modal-x{width:36px;height:36px;border-radius:50%;border:none;background:none;color:var(--text);font-size:1.1rem;display:flex;align-items:center;justify-content:center;transition:background .15s}
+    .modal-x:hover{background:rgba(255,255,255,.1)}
+    .modal-title{font-weight:800;font-size:1.05rem}
+    .modal-body{padding:16px}
+
+    /* ── COMPOSE MODAL ── */
+    .cm-compose{display:flex;gap:12px;padding:14px 16px}
+    .cm-ta{width:100%;background:none;border:none;color:var(--text);font-size:1.1rem;resize:none;min-height:120px;font-family:inherit;outline:none}
+    .cm-ta::placeholder{color:var(--muted)}
+    .cm-attach-preview{padding:0 16px 8px;display:flex;flex-wrap:wrap;gap:8px}
+    .cm-attach-item{position:relative;border-radius:12px;overflow:hidden;border:1px solid var(--border);max-width:180px}
+    .cm-attach-item img,.cm-attach-item video{width:100%;max-height:120px;object-fit:cover}
+    .cm-attach-item audio{width:100%}
+    .cm-attach-rm{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.75);border:none;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:.75rem}
+    .cm-attach-text{font-size:.75rem;font-family:monospace;padding:8px 10px;color:var(--muted);word-break:break-all}
+    .cm-extras{padding:8px 16px 4px;border-top:1px solid var(--border)}
+    .cm-extras-toggle{background:none;border:none;color:var(--accent);cursor:pointer;font-size:.85rem;padding:4px 0}
+    .cm-extra-fields{padding:8px 16px;display:grid;gap:8px}
+    .cm-toolbar{display:flex;align-items:center;justify-content:space-between;padding:10px 16px 14px;border-top:1px solid var(--border)}
+    .cm-submit{padding:8px 20px;border-radius:9999px;background:var(--accent);color:#fff;font-weight:700;font-size:.93rem;border:none;transition:background .15s}
+    .cm-submit:hover{background:var(--accent-h)}
+    .cm-submit:disabled{opacity:.5;cursor:not-allowed}
+    .cm-status{font-size:.82rem;color:var(--muted)}
+
+    /* ── FORMS ── */
+    .f-field{margin-bottom:14px}
+    .f-label{display:block;font-size:.82rem;font-weight:600;color:var(--muted);margin-bottom:5px}
+    .f-input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font:inherit;font-size:.93rem;transition:border-color .15s}
+    .f-input:focus{outline:none;border-color:var(--accent)}
+    .f-input::placeholder{color:var(--muted)}
+    textarea.f-input{resize:vertical;min-height:72px}
+    .f-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .f-status{padding:8px 12px;border-radius:8px;font-size:.85rem;margin:6px 0}
+    .f-status.good{background:var(--good-bg);color:var(--good)}
+    .f-status.danger{background:var(--danger-bg);color:var(--danger)}
+    .f-status.warn{background:var(--warn-bg);color:var(--warn)}
+    .f-status.info{background:var(--accent-bg);color:var(--accent)}
+    .btn{padding:10px 20px;border-radius:9999px;font-weight:700;font-size:.93rem;border:none;transition:background .15s,opacity .15s;cursor:pointer}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .btn-pri{background:var(--text);color:var(--bg)}
+    .btn-pri:not(:disabled):hover{background:#ccc}
+    .btn-acc{background:var(--accent);color:#fff}
+    .btn-acc:not(:disabled):hover{background:var(--accent-h)}
+    .btn-out{background:none;border:1px solid var(--border);color:var(--text)}
+    .btn-out:not(:disabled):hover{background:rgba(255,255,255,.07)}
+    .btn-dng{background:none;border:1px solid var(--danger);color:var(--danger)}
+    .btn-dng:not(:disabled):hover{background:var(--danger-bg)}
+    .btn-sm{padding:6px 14px;font-size:.85rem}
+    .btn-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .chip{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:.74rem;border:1px solid var(--border);color:var(--muted)}
+    .chip.good{color:var(--good);border-color:rgba(0,186,124,.4)}
+    .chip.danger{color:var(--danger);border-color:rgba(244,33,46,.4)}
+    .chip.accent{color:var(--accent);border-color:rgba(29,155,240,.4)}
+    .chip.warn{color:var(--warn);border-color:rgba(255,212,0,.4)}
+    .divider{border:none;border-top:1px solid var(--border);margin:14px 0}
+    .kv-row{display:grid;grid-template-columns:1fr 1.3fr auto;gap:8px;align-items:end;margin-bottom:6px}
+    .kv-row .f-input{margin:0}
+    .mono{font-family:ui-monospace,"Fira Code",monospace;font-size:.82em}
+
+    /* ── WALLET PANEL ── */
+    .wallet-address-card{background:var(--surface);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+    .wallet-addr-title{font-size:.8rem;font-weight:600;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
+    .wallet-addr-val{font-family:monospace;font-size:.85rem;word-break:break-all;color:var(--text);margin-bottom:8px}
+    .wallet-balances{display:flex;gap:8px;flex-wrap:wrap}
+    .balance-chip{padding:4px 12px;border-radius:9999px;font-size:.8rem;font-weight:600}
+    .balance-confirmed{background:var(--good-bg);color:var(--good);border:1px solid rgba(0,186,124,.35)}
+    .balance-unconf{background:var(--warn-bg);color:var(--warn);border:1px solid rgba(255,212,0,.35)}
+  </style>
+</head>
+<body>
+<div class="layout">
+  <!-- ── LEFT SIDEBAR ── -->
+  <aside class="l-sidebar">
+    <a class="brand" id="btnBrand" href="#" onclick="return false">
+      <div class="brand-logo">S</div>
+      <span class="brand-text">SupSpace</span>
+    </a>
+    <nav class="nav-links">
+      <button class="nav-item active" data-view="home" id="navHome">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+        <span class="nav-label">Home</span>
+      </button>
+      <button class="nav-item" data-view="explore" id="navExplore">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <span class="nav-label">Explore</span>
+      </button>
+      <button class="nav-item" data-view="community" id="navCommunity">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span class="nav-label">Community</span>
+      </button>
+      <button class="nav-item" data-view="myprofile" id="navProfile">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span class="nav-label">Profile</span>
+      </button>
+      <button class="nav-item" data-view="wallet" id="navWallet">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/><circle cx="17" cy="16" r="1" fill="currentColor"/></svg>
+        <span class="nav-label">Wallet</span>
+      </button>
+    </nav>
+    <button class="btn-new-post" id="btnNewPost">Post</button>
+    <button class="wallet-mini hidden" id="walletMini">
+      <img class="wallet-mini-avi" id="walletMiniAvi" src="" alt="">
+      <div class="wallet-mini-detail">
+        <div class="wallet-mini-name" id="walletMiniName"></div>
+        <div class="wallet-mini-addr" id="walletMiniAddr"></div>
+      </div>
+    </button>
+  </aside>
+
+  <!-- ── MAIN COLUMN ── -->
+  <main class="main-col">
+
+    <!-- HOME -->
+    <div class="view active" id="viewHome">
+      <div class="col-header">
+        <div class="col-header-inner"><span class="col-title">Home</span></div>
+        <div class="tab-bar">
+          <button class="tab-btn active">For you</button>
+          <button class="tab-btn">Recent</button>
+        </div>
+      </div>
+      <div class="inline-compose hidden" id="inlineCompose">
+        <img class="compose-avi" id="inlineComposeAvi" src="" alt="" onclick="openModal('modalProfileEdit')">
+        <div class="compose-right">
+          <textarea class="compose-ta" id="inlineComposeText" placeholder="What's happening on testnet3?!" rows="2" oninput="autoResize(this)"></textarea>
+          <div class="compose-actions">
+            <div class="compose-icon-btns">
+              <button class="c-icon-btn" title="Attach media" onclick="openModal('modalCompose');document.getElementById('cmAttachInput').focus()">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+              </button>
+            </div>
+            <button class="post-btn" id="inlinePostBtn" onclick="submitInlinePost()">Post</button>
+          </div>
+        </div>
+      </div>
+      <div id="homeFeed"><div class="feed-loading"><div class="spinner"></div>Loading feed…</div></div>
+    </div>
+
+    <!-- EXPLORE -->
+    <div class="view" id="viewExplore">
+      <div class="col-header">
+        <div class="col-header-inner"><span class="col-title">Explore</span></div>
+        <div style="padding:8px 16px 12px;">
+          <div style="position:relative;">
+            <span style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:var(--muted);pointer-events:none;">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            </span>
+            <input class="r-search-input" style="padding-left:44px;" id="exploreSearchInput" placeholder="Search @handles, #keywords, addresses, txids…" type="search" autocomplete="off">
+          </div>
+        </div>
+      </div>
+      <div id="exploreResults"><div class="feed-empty">Search for @handles, #keywords, testnet3 addresses, or txids</div></div>
+    </div>
+
+    <!-- COMMUNITY -->
+    <div class="view" id="viewCommunity">
+      <div class="col-header">
+        <div class="col-header-inner"><span class="col-title">Community</span></div>
+      </div>
+      <div id="communityFeed"><div class="feed-loading"><div class="spinner"></div>Loading community feed…</div></div>
+    </div>
+
+    <!-- MY PROFILE -->
+    <div class="view" id="viewMyprofile">
+      <div class="col-header">
+        <div class="col-header-inner"><span class="col-title" id="myProfileTitle">Profile</span></div>
+      </div>
+      <div id="myProfileContent"><div class="feed-empty">Unlock your wallet to see your profile.</div></div>
+    </div>
+
+    <!-- WALLET -->
+    <div class="view" id="viewWallet">
+      <div class="col-header">
+        <div class="col-header-inner"><span class="col-title">Wallet</span></div>
+      </div>
+      <div class="modal-body" id="walletViewBody"></div>
+    </div>
+
+  </main>
+
+  <!-- ── RIGHT SIDEBAR ── -->
+  <aside class="r-sidebar">
+    <div class="r-search-box">
+      <span class="r-search-icon">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      </span>
+      <input class="r-search-input" id="rSearchInput" placeholder="Search SupSpace" type="search" autocomplete="off">
+    </div>
+    <div class="sidebar-card">
+      <div class="sidebar-card-title" id="sidebarListTitle">Trending</div>
+      <div class="btn-row" style="margin-bottom:8px;">
+        <button class="btn btn-out btn-sm" onclick="setSidebarMode('trending')">Trending</button>
+        <button class="btn btn-out btn-sm" onclick="setSidebarMode('follows')">Following</button>
+      </div>
+      <div id="trendingContent"><div class="trend-n">Loading…</div></div>
+    </div>
+  </aside>
+</div>
+
+<!-- FAB -->
+<button class="fab" id="fab" aria-label="New post" onclick="openModal('modalCompose')">✏️</button>
+
+<!-- ══════════════ MODALS ══════════════ -->
+
+<!-- WALLET MODAL -->
+<div class="modal-overlay hidden" id="modalWallet">
+  <div class="modal" style="max-width:480px;">
+    <div class="modal-hdr">
+      <button class="modal-x" onclick="closeModal('modalWallet')">✕</button>
+      <span class="modal-title">Wallet</span>
+    </div>
+    <div class="modal-body" id="walletModalBody"></div>
+  </div>
+</div>
+
+<!-- COMPOSE MODAL -->
+<div class="modal-overlay hidden" id="modalCompose">
+  <div class="modal">
+    <div class="modal-hdr">
+      <button class="modal-x" onclick="closeModal('modalCompose')">✕</button>
+      <span class="modal-title">New Post</span>
+    </div>
+    <div class="cm-compose">
+      <img class="compose-avi" id="cmAvi" style="width:40px;height:40px;" src="" alt="">
+      <textarea class="cm-ta" id="cmBody" placeholder="What's happening on testnet3?!" oninput="autoResize(this)"></textarea>
+    </div>
+    <div class="cm-attach-preview" id="cmAttachPreview"></div>
+    <div style="padding:6px 16px 0;">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <input class="f-input" id="cmAttachInput" placeholder="IPFS:cid/file.ext · txid/file.ext · https://…" style="flex:1;" autocomplete="off">
+        <button class="btn btn-out btn-sm" onclick="addComposedAttachment()">＋ Attach</button>
+      </div>
+      <div id="cmAttachStatus" class="f-status info hidden"></div>
+    </div>
+    <div class="cm-extras">
+      <button class="cm-extras-toggle" onclick="toggleExtraFields()">⋯ More options</button>
+    </div>
+    <div class="cm-extra-fields hidden" id="cmExtraFields">
+      <div class="f-field" style="margin:0;">
+        <label class="f-label">Reply to txid</label>
+        <input class="f-input" id="cmTxid" placeholder="64-char txid" autocomplete="off">
+      </div>
+      <div class="f-field" style="margin:0;">
+        <label class="f-label">Extra recipients (addresses or @handles, comma-separated)</label>
+        <input class="f-input" id="cmRecipients" placeholder="m… or @handle" autocomplete="off">
+      </div>
+    </div>
+    <div class="cm-toolbar">
+      <div class="compose-icon-btns"></div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span class="cm-status" id="cmStatus"></span>
+        <button class="cm-submit" id="cmSubmit" onclick="submitCompose()">Post</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- PROFILE EDIT MODAL -->
+<div class="modal-overlay hidden" id="modalProfileEdit">
+  <div class="modal">
+    <div class="modal-hdr">
+      <button class="modal-x" onclick="closeModal('modalProfileEdit')">✕</button>
+      <span class="modal-title" id="peModalTitle">Claim New User</span>
+      <button class="btn btn-pri btn-sm" id="peSaveBtn" style="margin-left:auto;" onclick="broadcastProfileTx()">Claim</button>
+    </div>
+    <div class="modal-body">
+      <div id="peStatus" class="f-status info hidden"></div>
+      <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:14px;">
+        <div class="f-field" style="margin:0;flex:1;">
+          <label class="f-label">Handle (@username)</label>
+          <input class="f-input" id="peUrn" placeholder="yourhandle" autocomplete="off">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:4px;padding-bottom:2px;">
+          <button class="btn btn-out btn-sm" onclick="checkProfileHandle()">Check</button>
+          <span class="chip" id="peHandleBadge">Unchecked</span>
+        </div>
+      </div>
+      <div class="f-field"><label class="f-label">Bio</label><textarea class="f-input" id="peBio" placeholder="Tell the world…"></textarea></div>
+      <div class="f-field">
+        <label class="f-label">Profile image</label>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <input class="f-input" id="peImg" placeholder="IPFS:cid/img.png · txid/img.png · https://…" style="flex:1;" autocomplete="off" oninput="onProfileImageInput()">
+          <button class="btn btn-out btn-sm" onclick="validateProfileImage()">Validate</button>
+        </div>
+        <div id="peImgPreview" class="hidden" style="margin-top:8px;display:flex;align-items:center;gap:12px;">
+          <img id="peImgPreviewImg" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid var(--border);" alt="Preview">
+          <span class="chip" id="peImgBadge">Unchecked</span>
+        </div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <button class="tiny-link-btn" onclick="toggleProfileDetails()" id="peDetailsToggle">Show more details</button>
+      </div>
+      <div id="peMoreDetails" class="hidden">
+        <div class="f-row">
+          <div class="f-field"><label class="f-label">First name</label><input class="f-input" id="peFnm" autocomplete="off"></div>
+          <div class="f-field"><label class="f-label">Last name</label><input class="f-input" id="peLnm" autocomplete="off"></div>
+        </div>
+        <div class="f-row">
+          <div class="f-field"><label class="f-label">Middle initial / name</label><input class="f-input" id="peMnm" autocomplete="off"></div>
+          <div class="f-field"><label class="f-label">Suffix</label><input class="f-input" id="peSfx" autocomplete="off"></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+          <input type="checkbox" id="peEnableSec" style="width:18px;height:18px;accent-color:var(--accent);">
+          <label for="peEnableSec" style="font-size:.9rem;cursor:pointer;">Publish EC public keys (enables private messaging)</label>
+        </div>
+        <hr class="divider">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-weight:700;">Links</span>
+          <button class="btn btn-out btn-sm" onclick="addKvRow('peUrlPairs','url')">+ Add</button>
+        </div>
+        <div id="peUrlPairs"></div>
+        <hr class="divider">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-weight:700;">Location</span>
+          <button class="btn btn-out btn-sm" onclick="addKvRow('peLocPairs','loc')">+ Add</button>
+        </div>
+        <div id="peLocPairs"></div>
+      </div>
+      <hr class="divider">
+      <div class="btn-row">
+        <button class="btn btn-out btn-sm" onclick="estimateProfileTx()">Estimate cost</button>
+        <span id="peCostNote" style="font-size:.82rem;color:var(--muted);"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- POST DETAIL MODAL -->
+<div class="modal-overlay hidden" id="modalPost">
+  <div class="modal">
+    <div class="modal-hdr">
+      <button class="modal-x" onclick="closeModal('modalPost')">✕</button>
+      <span class="modal-title">Post</span>
+    </div>
+    <div id="postDetailBody"></div>
+  </div>
+</div>
+
+<!-- PROFILE VIEW MODAL -->
+<div class="modal-overlay hidden" id="modalProfile">
+  <div class="modal" style="max-width:680px;max-height:92vh;">
+    <div class="modal-hdr">
+      <button class="modal-x" onclick="closeModal('modalProfile')">✕</button>
+      <div>
+        <div style="font-weight:700;font-size:1rem;" id="profModalName"></div>
+        <div style="font-size:.78rem;color:var(--muted);" id="profModalPostCount"></div>
+      </div>
+    </div>
+    <div id="profModalBody" style="overflow-y:auto;max-height:calc(92vh - 54px);"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+
+/* ═══════════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════════ */
+const API_BASE = 'https://p2fk.io';
+const BITFOSSIL_BASE = 'https://bitfossil.org';
+const MEMPOOL_API = 'https://mempool.space/testnet/api';
+const P2FK_VER = 0x6f;
+const P2FK_CHUNK = 20;
+const P2FK_PAD = '#';
+const P2FK_SIGVER = '88';
+const DUST = 546;
+const FEE_DEFAULT = 10;
+const FEE_MIN = 2;
+// !! Must match SupRadio / SupTV exactly !!
+const WALLET_KEY = 'sup_iw_v1';
+const SOCIAL_KEY = 'sup_social_v1';
+const WALLET_MIN_PASS = 12;
+const WALLET_PBKDF2 = 600000;
+const CHANGE_COUNT = 2;
+const CHANGE_PREFIX = 'sup:testnet3:change:';
+const AMOUNT_PER = DUST / 1e8;
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const DELIMITERS = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
+const CID_RE = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[1-9A-HJ-NP-Za-km-z]{20,})$/i;
+const IPFS_GWS = ['https://ipfs.io/ipfs/','https://cloudflare-ipfs.com/ipfs/','https://dweb.link/ipfs/','https://gateway.pinata.cloud/ipfs/'];
+const IPFS_PATH_RE = /^\/?ipfs\/([a-zA-Z0-9]+)(?:\/(.*))?$/i;
+const UNSAFE_RE = /[^a-zA-Z0-9._-]/g;
+const IMG_RE = /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i;
+const AUD_RE = /\.(mp3|wav|ogg|flac|webm|aac|m4a|opus)$/i;
+const VID_RE = /\.(mp4|mov|avi|webm|ogv|m3u8)$/i;
+const TXID_RE = /^[0-9a-fA-F]{64}$/;
+const ADDR_RE = /^[mn][1-9A-HJ-NP-Za-km-z]{25,34}$/;
+const TAG_RE = /#([a-zA-Z0-9_-]{2,32})/g;
+const MENTION_RE = /@([A-Za-z0-9/]{1,64})/g;
+const FALLBACK_AVI = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect width="96" height="96" rx="48" fill="#1d9bf0"/><circle cx="48" cy="36" r="20" fill="rgba(255,255,255,.9)"/><path d="M16 88c7-20 18-28 32-28s25 8 32 28" fill="rgba(255,255,255,.9)"/></svg>');
+
+/* ═══════════════════════════════════════════════════
+   APP STATE
+═══════════════════════════════════════════════════ */
+const S = {
+  view: 'home',
+  addr: '',
+  priv: null,          // Uint8Array | null
+  keyring: null,
+  myProfile: null,
+  profileCache: new Map(),
+  profileReqCache: new Map(),
+  kwCache: new Map(),
+  followed: new Set(),
+  blocked: new Set(),
+  communityCache: {ts:0,posts:[]},
+  sidebarMode: 'trending',
+  sidebarRenderToken: 0,
+  composeAttachments: [],
+  normalizedImg: '',
+  handleCheck: null,
+  feedLoaded: false,
+  lastChangeOutputAddr: '',
+};
+
+/* ═══════════════════════════════════════════════════
+   UTILITY
+═══════════════════════════════════════════════════ */
+const norm = v => typeof v === 'string' ? v.trim() : '';
+const decHtml = t => norm(t).replace(/&amp;/gi,'&').replace(/&lt;/gi,'<').replace(/&gt;/gi,'>').replace(/&quot;/gi,'"').replace(/&#0?39;|&apos;/gi,"'");
+const esc = t => String(t??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+const sanitize = msg => decHtml(norm(msg)).replace(/[<>]/g,' ');
+const utf8len = v => new TextEncoder().encode(String(v??'')).length;
+const isAddr = v => ADDR_RE.test(norm(v));
+const shortAddr = v => { const t=norm(v); return t.length>16?`${t.slice(0,8)}…${t.slice(-5)}`:t; };
+const fmtDate = v => { if(!v) return ''; const d=new Date(v); return isNaN(d)?String(v).slice(0,20):d.toLocaleString(); };
+const fmtRel = v => {
+  if(!v) return '';
+  const d=new Date(v); if(isNaN(d)) return '';
+  const s=(Date.now()-d.getTime())/1000;
+  if(s<60) return `${Math.floor(s)}s`;
+  if(s<3600) return `${Math.floor(s/60)}m`;
+  if(s<86400) return `${Math.floor(s/3600)}h`;
+  if(s<604800) return `${Math.floor(s/86400)}d`;
+  return d.toLocaleDateString();
+};
+const plural = (n,l) => `${n} ${l}${n===1?'':'s'}`;
+const parseManualRecipients = raw => norm(raw).split(/[;,]/).map(s=>s.trim()).filter(Boolean);
+const parseHashtags = msg => { const m=norm(msg).match(/#[^\s]{1,20}/g)||[]; return [...new Set(m.map(t=>t.slice(1).trim()).filter(Boolean))]; };
+const $ = id => document.getElementById(id);
+const clr = el => { el.replaceChildren(); };
+function autoResize(ta) { ta.style.height='auto'; ta.style.height=ta.scrollHeight+'px'; }
+
+function showStatus(el, msg, kind='info') {
+  if(!el) return;
+  el.textContent = msg;
+  el.className = `f-status ${kind}`;
+  el.classList.remove('hidden');
+}
+function hideStatus(el) { if(el) el.classList.add('hidden'); }
+
+function setChip(el, text, kind='') {
+  if(!el) return;
+  el.textContent = text;
+  el.className = `chip${kind?' '+kind:''}`;
+}
+function socialSnapshot(){
+  return{
+    followed:[...S.followed],
+    blocked:[...S.blocked],
+    communityCache:S.communityCache||{ts:0,posts:[]}
+  };
+}
+function saveSocialState(){
+  try{localStorage.setItem(SOCIAL_KEY,JSON.stringify(socialSnapshot()));}catch{}
+}
+function loadSocialState(){
+  try{
+    const raw=JSON.parse(localStorage.getItem(SOCIAL_KEY)||'null');
+    if(!raw||typeof raw!=='object') return;
+    S.followed=new Set((Array.isArray(raw.followed)?raw.followed:[]).filter(isAddr));
+    S.blocked=new Set((Array.isArray(raw.blocked)?raw.blocked:[]).filter(isAddr));
+    const cc=raw.communityCache||{};
+    S.communityCache={
+      ts:Number(cc.ts||0),
+      posts:Array.isArray(cc.posts)?cc.posts.map(asRoot).filter(Boolean):[],
+      followedKey:norm(cc.followedKey||'')
+    };
+  }catch{}
+}
+function isBlockedAddr(addr){return isAddr(addr)&&S.blocked.has(addr);}
+function blockFilterRows(rows=[]){return rows.filter(r=>!isBlockedAddr(r?.fromAddr));}
+function asRoot(raw){
+  if(!raw||typeof raw!=='object') return null;
+  if(raw.fromAddr&&raw.txId) return{
+    ...raw,
+    txId:norm(raw.txId).toLowerCase(),
+    fromAddr:norm(raw.fromAddr),
+    message:String(raw.message??''),
+    files:Array.isArray(raw.files)?raw.files:[],
+    blockDate:raw.blockDate||''
+  };
+  return normalizeRoot(raw?.Root||raw?.root||raw);
+}
+async function buildSenderProfileCache(roots=[], seed={}){
+  const cache={...seed};
+  Object.keys(seed||{}).forEach(k=>{
+    const nk=norm(k);
+    if(nk&&cache[k]) cache[nk.toLowerCase()]=cache[k];
+  });
+  const addrs=[...new Set((roots||[]).map(r=>norm(r?.fromAddr)).filter(isAddr))].filter(a=>!cache[a]&&!cache[a.toLowerCase()]).slice(0,60);
+  if(!addrs.length) return cache;
+  await Promise.allSettled(addrs.map(async addr=>{
+    const p=await fetchProfileByAddr(addr);
+    if(p?.addr){
+      cache[p.addr]=p;
+      cache[p.addr.toLowerCase()]=p;
+    }
+  }));
+  return cache;
+}
+function setSidebarMode(mode='trending'){
+  S.sidebarMode=mode;
+  renderSidebarList();
+}
+window.setSidebarMode=setSidebarMode;
+
+/* ═══════════════════════════════════════════════════
+   SECP256k1 / CRYPTO
+═══════════════════════════════════════════════════ */
+function b2bi(b) { let v=0n; for(const x of b) v=(v<<8n)|BigInt(x); return v; }
+function bi2b32(n) { const o=new Uint8Array(32); for(let i=31;i>=0;i--){o[i]=Number(n&0xffn);n>>=8n;} return o; }
+function b2h(b) { return Array.from(b).map(x=>x.toString(16).padStart(2,'0')).join(''); }
+function h2b(h) { const o=new Uint8Array(h.length/2); for(let i=0;i<o.length;i++) o[i]=parseInt(h.slice(i*2,i*2+2),16); return o; }
+async function sha256(b) { return new Uint8Array(await crypto.subtle.digest('SHA-256',b)); }
+async function sha256hex(t) { return b2h(await sha256(new TextEncoder().encode(t))); }
+
+function encVI(n) { if(n<0xfd) return new Uint8Array([n]); if(n<=0xffff) return new Uint8Array([0xfd,n&0xff,(n>>8)&0xff]); return new Uint8Array([0xfe,n&0xff,(n>>8)&0xff,(n>>16)&0xff,(n>>>24)&0xff]); }
+async function msgHash(text) {
+  const magic=new TextEncoder().encode('Bitcoin Signed Message:\n');
+  const msg=new TextEncoder().encode(text);
+  const ml=encVI(msg.length);
+  const env=new Uint8Array(1+magic.length+ml.length+msg.length);
+  env[0]=magic.length; env.set(magic,1); env.set(ml,1+magic.length); env.set(msg,1+magic.length+ml.length);
+  return sha256(await sha256(env));
+}
+
+function encB58(b) {
+  if(!(b instanceof Uint8Array)) b=new Uint8Array(b);
+  let z=0; while(z<b.length&&b[z]===0) z++;
+  let v=0n; for(const x of b) v=(v<<8n)+BigInt(x);
+  let s=''; while(v>0n){const r=Number(v%58n);v/=58n;s=B58[r]+s;}
+  return B58[0].repeat(z)+(s||(z?'':B58[0]));
+}
+async function encB58C(b) {
+  const p=b instanceof Uint8Array?b:new Uint8Array(b);
+  const h=await sha256(await sha256(p));
+  const o=new Uint8Array(p.length+4); o.set(p); o.set(h.slice(0,4),p.length);
+  return encB58(o);
+}
+function decB58(s) {
+  let n=0n; for(const c of s){const i=B58.indexOf(c);if(i<0)throw new Error('Invalid B58');n=n*58n+BigInt(i);}
+  let z=0; for(const c of s){if(c!==B58[0])break;z++;}
+  const o=[]; while(n>0n){o.unshift(Number(n&0xffn));n>>=8n;}
+  return new Uint8Array([...new Array(z).fill(0),...o]);
+}
+async function decB58C(s) {
+  const r=decB58(s); if(r.length<5) throw new Error('B58C too short');
+  const p=r.slice(0,-4),c=r.slice(-4);
+  const h=await sha256(await sha256(p));
+  for(let i=0;i<4;i++) if(c[i]!==h[i]) throw new Error('Invalid checksum');
+  return p;
+}
+
+const P=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2Fn;
+const N=0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141n;
+const Gx=0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798n;
+const Gy=0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8n;
+const sP=n=>((n%P)+P)%P;
+const sN=n=>((n%N)+N)%N;
+function sInv(a,m){let[r,s,rr,ss]=[m,0n,((a%m)+m)%m,1n];while(rr!==0n){const q=r/rr;[r,s,rr,ss]=[rr,ss,r-q*rr,s-q*ss];}return((s%m)+m)%m;}
+function jDbl(X,Y,Z){if(Y===0n)return[0n,1n,0n];const Y2=sP(Y*Y),S=sP(4n*X*Y2),M=sP(3n*X*X),X2=sP(M*M-2n*S);return[X2,sP(M*(S-X2)-8n*Y2*Y2),sP(2n*Y*Z)];}
+function jAdd(X1,Y1,Z1,X2,Y2,Z2){if(Z1===0n)return[X2,Y2,Z2];if(Z2===0n)return[X1,Y1,Z1];const z1s=sP(Z1*Z1),z2s=sP(Z2*Z2),U1=sP(X1*z2s),U2=sP(X2*z1s),S1=sP(Y1*z2s*Z2),S2=sP(Y2*z1s*Z1),H=sP(U2-U1),R=sP(S2-S1);if(H===0n)return R===0n?jDbl(X1,Y1,Z1):[0n,1n,0n];const Hs=sP(H*H),Hc=sP(H*Hs),X3=sP(R*R-Hc-2n*U1*Hs);return[X3,sP(R*(U1*Hs-X3)-S1*Hc),sP(H*Z1*Z2)];}
+function jAff(X,Y,Z){const zi=sInv(Z,P),zi2=sP(zi*zi);return[sP(X*zi2),sP(Y*sP(zi2*zi))];}
+function sMul(k){let[rx,ry,rz]=[0n,1n,0n],[ax,ay,az]=[Gx,Gy,1n],sc=((k%N)+N)%N;while(sc>0n){if(sc&1n)[rx,ry,rz]=jAdd(rx,ry,rz,ax,ay,az);[ax,ay,az]=jDbl(ax,ay,az);sc>>=1n;}return[rx,ry,rz];}
+function priv2pub(pb){const[jx,jy,jz]=sMul(b2bi(pb));const[x,y]=jAff(jx,jy,jz);return new Uint8Array([(y&1n)?0x03:0x02,...bi2b32(x)]);}
+function priv2pt(pb){const[jx,jy,jz]=sMul(b2bi(pb));const[x,y]=jAff(jx,jy,jz);return{x,y};}
+
+async function rfc6979k(priv,mh) {
+  const hmac=async(key,...parts)=>{const k=await crypto.subtle.importKey('raw',key,{name:'HMAC',hash:'SHA-256'},false,['sign']);const sz=parts.reduce((s,p)=>s+p.length,0),m=new Uint8Array(sz);let o=0;for(const p of parts){m.set(p,o);o+=p.length;}return new Uint8Array(await crypto.subtle.sign('HMAC',k,m));};
+  let V=new Uint8Array(32).fill(1),K=new Uint8Array(32).fill(0);
+  K=await hmac(K,V,new Uint8Array([0]),priv,mh); V=await hmac(K,V);
+  K=await hmac(K,V,new Uint8Array([1]),priv,mh); V=await hmac(K,V);
+  for(;;){V=await hmac(K,V);const k=b2bi(V);if(k>=1n&&k<N)return k;K=await hmac(K,V,new Uint8Array([0]));V=await hmac(K,V);}
+}
+async function ecSign(priv,mhb){const d=b2bi(priv),z=b2bi(mhb),k=await rfc6979k(priv,mhb);const[rx,ry]=jAff(...sMul(k));const r=sN(rx);let s=sN(sInv(k,N)*(z+r*d));let rid=Number(ry&1n)|(rx>=N?2:0);if(s>N/2n){s=N-s;rid^=1;}return{r,s,recoveryId:rid};}
+function derEnc(r,s){const mb=n=>{const b=[];let t=n;while(t>0n){b.unshift(Number(t&0xffn));t>>=8n;}if(b[0]&0x80)b.unshift(0);return b;};const rb=mb(r),sb=mb(s);return new Uint8Array([0x30,rb.length+sb.length+4,0x02,rb.length,...rb,0x02,sb.length,...sb]);}
+
+function ripemd160(data) {
+  const bytes=data instanceof Uint8Array?data:new TextEncoder().encode(data);
+  const rl32=(x,n)=>(x<<n)|(x>>>(32-n));
+  const ff=(j,x,y,z)=>j<16?x^y^z:j<32?(x&y)|(~x&z):j<48?(x|~y)^z:j<64?(x&z)|(y&~z):x^(y|~z);
+  const KL=[0,0x5A827999,0x6ED9EBA1,0x8F1BBCDC,0xA953FD4E];
+  const KR=[0x50A28BE6,0x5C4DD124,0x6D703EF3,0x7A6D76E9,0];
+  const RL=[0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,7,4,13,1,10,6,15,3,12,0,9,5,2,14,11,8,3,10,14,4,9,15,8,1,2,7,0,6,13,11,5,12,1,9,11,10,0,8,12,4,13,3,7,15,14,5,6,2,4,0,5,9,7,12,2,10,14,1,3,8,11,6,15,13];
+  const RR=[5,14,7,0,9,2,11,4,13,6,15,8,1,10,3,12,6,11,3,7,0,13,5,10,14,15,8,12,4,9,1,2,15,5,1,3,7,14,6,9,11,8,12,2,10,0,4,13,8,6,4,1,3,11,15,0,5,12,2,13,9,7,10,14,12,15,10,4,1,5,8,7,6,2,13,14,0,3,9,11];
+  const SL=[11,14,15,12,5,8,7,9,11,13,14,15,6,7,9,8,7,6,8,13,11,9,7,15,7,12,15,9,11,7,13,12,11,13,6,7,14,9,13,15,14,8,13,6,5,12,7,5,11,12,14,15,14,15,9,8,9,14,5,6,8,6,5,12,9,15,5,11,6,8,13,12,5,12,13,14,11,8,5,6];
+  const SR=[8,9,9,11,13,15,15,5,7,7,8,11,14,14,12,6,9,13,15,7,12,8,9,11,7,7,12,7,6,15,13,11,9,7,15,11,8,6,6,14,12,13,5,14,13,13,7,5,15,5,8,11,14,14,6,14,6,9,12,9,12,5,15,8,8,5,12,9,12,5,14,6,8,13,6,5,15,13,11,11];
+  const ml=bytes.length,pl=ml%64<56?56-(ml%64):120-(ml%64);
+  const pd=new Uint8Array(ml+pl+8); pd.set(bytes); pd[ml]=0x80;
+  const bl=ml*8; for(let i=0;i<4;i++) pd[ml+pl+i]=(bl>>>(i*8))&0xff;
+  const view=new DataView(pd.buffer);
+  let h0=0x67452301,h1=0xEFCDAB89,h2=0x98BADCFE,h3=0x10325476,h4=0xC3D2E1F0;
+  for(let off=0;off<pd.length;off+=64){
+    const X=Array.from({length:16},(_,i)=>view.getUint32(off+i*4,true));
+    let al=h0,bl_=h1,cl=h2,dl=h3,el=h4,ar=h0,br=h1,cr=h2,dr=h3,er=h4;
+    for(let j=0;j<80;j++){
+      const qi=j>>4;
+      let t=(rl32((al+ff(j,bl_,cl,dl)+X[RL[j]]+KL[qi])|0,SL[j])+el)|0;
+      al=el;el=dl;dl=rl32(cl,10);cl=bl_;bl_=t;
+      t=(rl32((ar+ff(79-j,br,cr,dr)+X[RR[j]]+KR[qi])|0,SR[j])+er)|0;
+      ar=er;er=dr;dr=rl32(cr,10);cr=br;br=t;
+    }
+    const t=(h1+cl+dr)|0;
+    h1=(h2+dl+er)|0;h2=(h3+el+ar)|0;h3=(h4+al+br)|0;h4=(h0+bl_+cr)|0;h0=t;
+  }
+  const out=new Uint8Array(20),dv=new DataView(out.buffer);
+  [h0,h1,h2,h3,h4].forEach((v,i)=>dv.setUint32(i*4,v,true));
+  return out;
+}
+
+async function wif2priv(wif) {
+  const p=await decB58C(norm(wif));
+  if(p[0]!==0xef) throw new Error('Only testnet3 WIF supported');
+  if(p.length===34) return p.slice(1,33);
+  if(p.length===33) return p.slice(1);
+  throw new Error('Unexpected WIF length');
+}
+async function priv2wif(pb) {
+  const w=new Uint8Array(34); w[0]=0xef; w.set(pb,1); w[33]=0x01;
+  return encB58C(w);
+}
+async function priv2addr(pb) {
+  const pub=priv2pub(pb),h=ripemd160(await sha256(pub));
+  return encB58C(new Uint8Array([P2FK_VER,...h]));
+}
+async function decryptPriv(stored,pass) {
+  const km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pass),'PBKDF2',false,['deriveKey']);
+  const k=await crypto.subtle.deriveKey({name:'PBKDF2',salt:new Uint8Array(stored.salt),iterations:WALLET_PBKDF2,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['decrypt']);
+  return new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:new Uint8Array(stored.iv)},k,new Uint8Array(stored.data)));
+}
+async function encryptPriv(pb,pass) {
+  const salt=crypto.getRandomValues(new Uint8Array(32)),iv=crypto.getRandomValues(new Uint8Array(12));
+  const km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pass),'PBKDF2',false,['deriveKey']);
+  const k=await crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:WALLET_PBKDF2,hash:'SHA-256'},km,{name:'AES-GCM',length:256},false,['encrypt']);
+  const enc=await crypto.subtle.encrypt({name:'AES-GCM',iv},k,pb);
+  return{salt:Array.from(salt),iv:Array.from(iv),data:Array.from(new Uint8Array(enc))};
+}
+async function deriveChangeKey(base,label) {
+  const seedPfx=new TextEncoder().encode(`${CHANGE_PREFIX}${norm(label)}:`);
+  const bsc=b2bi(base);
+  const ctr=new Uint8Array(4);
+  for(let c=0;c<=0xffffffff;c++){
+    ctr[0]=(c>>>24)&0xff;ctr[1]=(c>>>16)&0xff;ctr[2]=(c>>>8)&0xff;ctr[3]=c&0xff;
+    const seed=new Uint8Array(seedPfx.length+base.length+4);
+    seed.set(seedPfx);seed.set(base,seedPfx.length);seed.set(ctr,seedPfx.length+base.length);
+    const tw=sN(b2bi(await sha256(seed)));
+    if(tw===0n) continue;
+    const d=sN(bsc+tw);
+    if(d===0n) continue;
+    return bi2b32(d);
+  }
+  throw new Error('Could not derive change key');
+}
+function buildP2PKH(h160){return new Uint8Array([0x76,0xa9,0x14,...h160,0x88,0xac]);}
+async function addrPayout(addr) {
+  const p=await decB58C(norm(addr));
+  if(p.length!==21||p[0]!==0x6f) throw new Error(`Not a testnet3 legacy address: ${addr}`);
+  return buildP2PKH(p.slice(1));
+}
+async function buildSignerEntry(pb,lbl){const pub=priv2pub(pb),h=ripemd160(await sha256(pub)),a=await encB58C(new Uint8Array([P2FK_VER,...h]));return{label:lbl,pb,pub,script:buildP2PKH(h),addr:a};}
+async function buildKeyring(base){
+  const main=await buildSignerEntry(base,'main');
+  const changes=[];
+  for(let i=0;i<CHANGE_COUNT;i++){
+    const d=await deriveChangeKey(base,`slot-${i+1}`);
+    changes.push(await buildSignerEntry(d,`change-${i+1}`));
+  }
+  return{main,changes,all:[main,...changes]};
+}
+
+function serializeTx(inputs,outputs,sigIdx=-1,sigScript=null){
+  const u32=v=>[v&0xff,(v>>8)&0xff,(v>>16)&0xff,(v>>>24)&0xff];
+  const u64=v=>{const n=BigInt(Math.round(v));return[...u32(Number(n&0xffffffffn)),...u32(Number((n>>32n)&0xffffffffn))];};
+  const vi=n=>n<0xfd?[n]:n<=0xffff?[0xfd,n&0xff,(n>>8)&0xff]:[0xfe,n&0xff,(n>>8)&0xff,(n>>16)&0xff,(n>>>24)&0xff];
+  const out=[...u32(1),...vi(inputs.length)];
+  for(let i=0;i<inputs.length;i++){
+    out.push(...Array.from(h2b(inputs[i].txid)).reverse(),...u32(inputs[i].vout));
+    const sc=sigIdx>=0?(i===sigIdx?sigScript:new Uint8Array([])):inputs[i].scriptSig||new Uint8Array([]);
+    out.push(...vi(sc.length),...sc,...u32(0xffffffff));
+  }
+  out.push(...vi(outputs.length));
+  for(const o of outputs) out.push(...u64(o.sat),...vi(o.script.length),...o.script);
+  out.push(...u32(0));
+  return new Uint8Array(out);
+}
+async function buildTx(utxos,outputs){
+  const inputs=utxos.map(u=>({txid:u.txid,vout:u.vout,signer:u.signer,scriptSig:new Uint8Array([])}));
+  const finalOuts=await Promise.all(outputs.map(async o=>({sat:o.sat,script:await addrPayout(o.addr)})));
+  for(let i=0;i<inputs.length;i++){
+    const sg=inputs[i].signer;
+    const pre=new Uint8Array([...serializeTx(inputs,finalOuts,i,sg.script),1,0,0,0]);
+    const sh=await sha256(await sha256(pre));
+    const{r,s}=await ecSign(sg.pb,sh);
+    const der=derEnc(r,s);
+    inputs[i].scriptSig=new Uint8Array([der.length+1,...der,0x01,sg.pub.length,...sg.pub]);
+  }
+  return b2h(serializeTx(inputs,finalOuts));
+}
+async function broadcastTx(outputs) {
+  if(!S.priv) throw new Error('Wallet is locked');
+  const kr=S.keyring||await buildKeyring(S.priv);
+  if(!S.keyring) S.keyring=kr;
+  const [cA,cB]=kr.changes;
+  const utxoGroups=await Promise.all(kr.all.map(async sg=>{
+    const r=await fetch(`${MEMPOOL_API}/address/${encodeURIComponent(sg.addr)}/utxo`);
+    if(!r.ok) throw new Error(`UTXO fetch failed for ${sg.label}`);
+    const j=await r.json();
+    return j.filter(u=>u.status?.confirmed).map(u=>({...u,srcAddr:sg.addr,signer:sg}));
+  }));
+  const allUtxos=utxoGroups.flat();
+  if(!allUtxos.length) throw new Error('No confirmed UTXOs found');
+  let feeRate=FEE_DEFAULT;
+  try{const fr=await fetch(`${MEMPOOL_API}/v1/fees/recommended`);const fp=await fr.json();feeRate=Math.max(Number(fp?.halfHourFee||FEE_DEFAULT),FEE_MIN);}catch{}
+  const estFee=(ic,oc)=>Math.ceil((10+148*ic+34*oc)*feeRate);
+  const outSats=outputs.map(o=>({addr:o.addr,sat:Math.round(o.amount*1e8)}));
+  const totalOut=outSats.reduce((s,o)=>s+o.sat,0);
+  const totByAddr=kr.all.reduce((m,sg)=>m.set(sg.addr,0),new Map());
+  allUtxos.forEach(u=>totByAddr.set(u.srcAddr,(totByAddr.get(u.srcAddr)||0)+Number(u.value||0)));
+  const chOrdered=(totByAddr.get(cA.addr)||0)>=(totByAddr.get(cB.addr)||0)?[cA,cB]:[cB,cA];
+  const [pref,sec]=chOrdered;
+  const candidates=[];
+  // alternate preferred change-input source when both have funds
+  if((totByAddr.get(cA.addr)||0)>0&&(totByAddr.get(cB.addr)||0)>0&&S.lastChangeOutputAddr){
+    const first=S.lastChangeOutputAddr===cA.addr?cB:cA,second=first===cA?cB:cA;
+    candidates.push(first,second);
+  }else{
+    if((totByAddr.get(pref.addr)||0)>0) candidates.push(pref);
+    if((totByAddr.get(sec.addr)||0)>0) candidates.push(sec);
+  }
+  if((totByAddr.get(kr.main.addr)||0)>0) candidates.push(kr.main);
+  let selSourceLabel='single-source',sel=null,selUtxos=[],selTotal=0;
+  for(const src of [...new Set(candidates)]){
+    const pool=allUtxos.filter(u=>u.srcAddr===src.addr).sort((a,b)=>b.value-a.value);
+    let lo=[],lt=0;
+    for(const u of pool){lo.push(u);lt+=u.value;if(lt>=totalOut+estFee(lo.length,outSats.length+1)) break;}
+    if(lo.length&&lt>=totalOut+estFee(lo.length,outSats.length+1)){sel=src;selUtxos=lo;selTotal=lt;break;}
+  }
+  // fallback: combine UTXOs across all wallet addresses (main + both changes)
+  if(!sel){
+    const mixPool=[...allUtxos].sort((a,b)=>b.value-a.value);
+    let lo=[],lt=0;
+    for(const u of mixPool){lo.push(u);lt+=u.value;if(lt>=totalOut+estFee(lo.length,outSats.length+1)){selUtxos=lo;selTotal=lt;selSourceLabel='mixed-sources';break;}}
+  }
+  if(!selUtxos.length) throw new Error('Insufficient funds across main + change addresses');
+  const fee=estFee(selUtxos.length,outSats.length+1);
+  const change=selTotal-totalOut-fee;
+  if(change<0) throw new Error('Insufficient balance after fee');
+  const usedAddrs=new Set(selUtxos.map(u=>u.srcAddr));
+  let changeAddr=pref.addr;
+  if(usedAddrs.has(cA.addr)&&!usedAddrs.has(cB.addr)) changeAddr=cB.addr;
+  else if(usedAddrs.has(cB.addr)&&!usedAddrs.has(cA.addr)) changeAddr=cA.addr;
+  else if(S.lastChangeOutputAddr) changeAddr=S.lastChangeOutputAddr===cA.addr?cB.addr:cA.addr;
+  S.lastChangeOutputAddr=changeAddr;
+  const finalOuts=[...outSats];
+  if(change>=DUST) finalOuts.push({addr:changeAddr,sat:change});
+  const rawHex=await buildTx(selUtxos,finalOuts);
+  const res=await fetch(`${MEMPOOL_API}/tx`,{method:'POST',headers:{'Content-Type':'text/plain'},body:rawHex});
+  if(!res.ok) throw new Error(`Broadcast failed: ${await res.text()}`);
+  return (await res.text()).trim();
+}
+async function consolidateChangeFunds(){
+  if(!S.priv) throw new Error('Unlock wallet first');
+  const kr=S.keyring||await buildKeyring(S.priv);
+  if(!S.keyring) S.keyring=kr;
+  const changeSigners=(kr.changes||[]).filter(Boolean);
+  if(!changeSigners.length) throw new Error('Change keyring unavailable');
+  const utxoGroups=await Promise.all(changeSigners.map(async sg=>{
+    const r=await fetch(`${MEMPOOL_API}/address/${encodeURIComponent(sg.addr)}/utxo`);
+    if(!r.ok) throw new Error(`UTXO fetch failed for ${sg.label}`);
+    const j=await r.json();
+    return j.filter(u=>u.status?.confirmed).map(u=>({...u,srcAddr:sg.addr,signer:sg}));
+  }));
+  const utxos=utxoGroups.flat();
+  if(!utxos.length) throw new Error('No confirmed change funds to consolidate');
+  let feeRate=FEE_DEFAULT;
+  try{const fr=await fetch(`${MEMPOOL_API}/v1/fees/recommended`);const fp=await fr.json();feeRate=Math.max(Number(fp?.halfHourFee||FEE_DEFAULT),FEE_MIN);}catch{}
+  const fee=Math.ceil((10+148*utxos.length+34)*feeRate);
+  const total=utxos.reduce((s,u)=>s+Number(u.value||0),0);
+  const send=total-fee;
+  if(send<DUST) throw new Error(`Consolidation output too small after fee (${send} sat)`);
+  const rawHex=await buildTx(utxos,[{addr:kr.main.addr,sat:send}]);
+  const res=await fetch(`${MEMPOOL_API}/tx`,{method:'POST',headers:{'Content-Type':'text/plain'},body:rawHex});
+  if(!res.ok) throw new Error(`Consolidation broadcast failed: ${await res.text()}`);
+  return(await res.text()).trim();
+}
+
+function randDelim(){const b=new Uint8Array(1),lim=Math.floor(256/DELIMITERS.length)*DELIMITERS.length;let v=0;do{crypto.getRandomValues(b);v=b[0];}while(v>=lim);return DELIMITERS[v%DELIMITERS.length];}
+function randSalt(){const b=new Uint32Array(1);crypto.getRandomValues(b);return-(b[0]%100000);}
+
+async function signMsg(text){
+  if(!S.priv) throw new Error('Wallet locked');
+  const mh=await msgHash(text);
+  const{r,s,recoveryId}=await ecSign(S.priv,mh);
+  const c=new Uint8Array(65);c[0]=27+4+recoveryId;c.set(bi2b32(r),1);c.set(bi2b32(s),33);
+  return btoa(String.fromCharCode.apply(null,c));
+}
+
+async function kwAddr(keyword){
+  const tok=norm(keyword).replace(/^#/,'');
+  if(!tok) return '';
+  if(S.kwCache.has(tok)) return S.kwCache.get(tok);
+  try{
+    const r=await fetch(`${API_BASE}/GetPublicAddressByKeyword/${encodeURIComponent(tok)}?mainnet=false`);
+    if(r.ok){const t=norm(await r.text()).replace(/^"|"$/g,'');if(isAddr(t)){S.kwCache.set(tok,t);return t;}}
+  }catch{}
+  // local fallback
+  const b=new TextEncoder().encode(tok);
+  const p=new Uint8Array(21);p[0]=P2FK_VER;if(b.length>=20)p.set(b.slice(0,20),1);else{p.set(b,1);p.fill('#'.charCodeAt(0),1+b.length);}
+  const local=await encB58C(p);
+  S.kwCache.set(tok,local);
+  return local;
+}
+
+async function encP2FK(payload,ver=P2FK_VER){
+  const b=new TextEncoder().encode(payload);
+  const addrs=[],seen=new Set();
+  for(let i=0;i<b.length;i+=P2FK_CHUNK){
+    const chunk=b.slice(i,i+P2FK_CHUNK);
+    const padded=new Uint8Array(P2FK_CHUNK);
+    padded.fill(P2FK_PAD.charCodeAt(0));
+    padded.set(chunk);
+    const ab=new Uint8Array(1+P2FK_CHUNK);ab[0]=ver;ab.set(padded,1);
+    const enc=await encB58C(ab);
+    if(!seen.has(enc)){seen.add(enc);addrs.push(enc);}
+  }
+  return addrs;
+}
+
+async function buildMsgOutputs({text,attachments=[],extras=[],fromAddr}){
+  const safe=sanitize(text);
+  const delim=randDelim();
+  const payload=`${safe}${attachments.map(a=>`<<${a}>>`).join('')}<<${randSalt()}>>`;
+  const unsObj=`${delim}${utf8len(payload)}${delim}${payload}`;
+  const sigHash=(await sha256hex(unsObj)).toUpperCase();
+  const sig=await signMsg(sigHash);
+  const signed=`SIG${delim}${P2FK_SIGVER}${delim}${sig}${unsObj}`;
+  const encAddrs=await encP2FK(signed);
+  const rset=new Set(encAddrs);
+  await addrPayout(fromAddr); // validate sender addr
+  for(const kw of parseHashtags(safe)) rset.add(await kwAddr(kw));
+  for(const r of extras){
+    const a=norm(r);
+    if(!a||a===fromAddr) continue;
+    if(isAddr(a)){await addrPayout(a);rset.add(a);}
+    else if(a.startsWith('@')){const p=await fetchProfileByURN(a.slice(1));if(p?.addr) rset.add(p.addr);}
+  }
+  rset.add(fromAddr);
+  return [...rset].map(addr=>({addr,amount:AMOUNT_PER}));
+}
+
+async function buildProOutputs({urn,fnm,mnm,lnm,sfx,bio,img,urls,loc,enableSec}){
+  if(!S.priv||!S.addr) throw new Error('Unlock wallet first');
+  const pj={urn};
+  if(fnm) pj.fnm=fnm; if(mnm) pj.mnm=mnm; if(lnm) pj.lnm=lnm; if(sfx) pj.sfx=sfx;
+  if(bio) pj.bio=bio; if(img) pj.img=img;
+  if(Object.keys(urls).length) pj.url=urls;
+  if(Object.keys(loc).length) pj.loc=loc;
+  pj.cre=['0'];
+  if(enableSec){const{x,y}=priv2pt(S.priv);pj.pkx=x.toString(16);pj.pky=y.toString(16);}
+  const json=JSON.stringify(pj);
+  const delim=randDelim();
+  const body=`PRO${delim}${utf8len(json)}${delim}${json}`;
+  const sigHash=(await sha256hex(body)).toUpperCase();
+  const sig=await signMsg(sigHash);
+  const payload=`SIG${delim}${P2FK_SIGVER}${delim}${sig}${body}`;
+  const enc=await encP2FK(payload);
+  const rset=new Set(enc);
+  // URN keyword address
+  const kb=new TextEncoder().encode(urn);
+  const kp=new Uint8Array(21);kp[0]=P2FK_VER;if(kb.length>=20)kp.set(kb.slice(0,20),1);else{kp.set(kb,1);kp.fill('#'.charCodeAt(0),1+kb.length);}
+  rset.add(await encB58C(kp));
+  rset.add(S.addr);
+  return[...rset].map(addr=>({addr,amount:AMOUNT_PER}));
+}
+
+/* ═══════════════════════════════════════════════════
+   IPFS / ATTACHMENT HELPERS
+═══════════════════════════════════════════════════ */
+function buildIpfsUrl(cid,path='',gi=0){const gw=IPFS_GWS[Math.abs(gi)%IPFS_GWS.length];return`${gw}${cid}${path?`/${path.replace(/^\/+/,'')}`:''}`;}
+function extractIpfsParts(v){
+  const input=norm(v);if(!input) return null;
+  if(/^ipfs:/i.test(input)){const b=input.replace(/^ipfs:/i,'').replace(/^\/+/,'');const[cr,...ps]=b.split(/[\\/]+/).filter(Boolean);const cid=norm(cr||'');return CID_RE.test(cid)?{cid,path:ps.join('/')}:null;}
+  const loose=input.match(/(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[1-9A-HJ-NP-Za-km-z]{20,})(?:[\\/]+([^\s<>]+))?/i);
+  if(loose) return{cid:loose[1],path:norm(loose[2]||'')};
+  try{const u=new URL(input);const hs=norm(u.hostname).split('.ipfs.');if(hs.length>1&&CID_RE.test(hs[0]))return{cid:hs[0],path:norm(u.pathname).replace(/^\/+/,'')};const pm=norm(u.pathname).match(IPFS_PATH_RE);if(pm)return{cid:pm[1],path:norm(pm[2]||'')};}catch{}
+  return null;
+}
+function normOnChain(v){const t=norm(v);const m=t.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})[\\/]([^\s<>]+)$/);if(!m)return null;const chain=norm(m[1]||'');const txid=m[2].toLowerCase();const path=norm(m[3]).replace(/^\/+/,'').replace(UNSAFE_RE,'');if(!path)throw new Error('Attachment needs filename');return`${chain?chain.toUpperCase()+':':''}${txid}/${path}`;}
+function onchainFileUrl(txid,path=''){
+  const safePath=norm(path).replace(/^\/+/,'').split('/').filter(Boolean).map(p=>encodeURIComponent(p)).join('/');
+  return `${BITFOSSIL_BASE}/${txid.toLowerCase()}/root/${safePath}`;
+}
+async function normalizeAttach(raw,{imgOnly=false}={}){
+  const input=norm(raw);if(!input) throw new Error('Enter an attachment reference');
+  const ipfs=extractIpfsParts(input);
+  if(ipfs?.cid){const sp=norm(ipfs.path||'').replace(/^\/+/,'').split('/').map(p=>p.replace(UNSAFE_RE,'')).filter(Boolean).join('/');const can=`IPFS:${ipfs.cid}${sp?`/${sp}`:''}`;const prev=buildIpfsUrl(ipfs.cid,sp);return{canonical:can,preview:prev,type:IMG_RE.test(sp)?'image':VID_RE.test(sp)?'video':AUD_RE.test(sp)?'audio':'file'};}
+  const oc=normOnChain(input);
+  if(oc){return{canonical:oc,preview:'',type:IMG_RE.test(oc)?'image':VID_RE.test(oc)?'video':AUD_RE.test(oc)?'audio':'file'};}
+  if(/^https?:\/\//i.test(input)){const u=new URL(input);if(imgOnly&&!IMG_RE.test(u.pathname))throw new Error('Profile images must be IPFS, on-chain, or direct image URLs');return{canonical:u.toString(),preview:u.toString(),type:IMG_RE.test(u.pathname)?'image':VID_RE.test(u.pathname)?'video':AUD_RE.test(u.pathname)?'audio':'link'};}
+  throw new Error('Use IPFS:cid/file.ext, txid/file.ext, or https://…');
+}
+function mediaKindFromPath(path=''){
+  const p=norm(path);
+  if(IMG_RE.test(p)) return 'image';
+  if(VID_RE.test(p)) return 'video';
+  if(AUD_RE.test(p)) return 'audio';
+  return 'file';
+}
+function attachmentPreviewCandidates(token){
+  const t=norm(token);
+  if(!t) return{kind:'file',urls:[],raw:t};
+  if(/^https?:\/\//i.test(t)){
+    try{
+      const u=new URL(t);
+      return{kind:mediaKindFromPath(u.pathname),urls:[u.toString()],raw:t};
+    }catch{return{kind:'link',urls:[t],raw:t};}
+  }
+  const ipfs=extractIpfsParts(t);
+  if(ipfs?.cid){
+    const urls=[buildIpfsUrl(ipfs.cid,'',0)];
+    if(ipfs.path) urls.push(buildIpfsUrl(ipfs.cid,ipfs.path,0));
+    for(let i=1;i<IPFS_GWS.length;i++){
+      urls.push(buildIpfsUrl(ipfs.cid,'',i));
+      if(ipfs.path) urls.push(buildIpfsUrl(ipfs.cid,ipfs.path,i));
+    }
+    return{kind:mediaKindFromPath(ipfs.path),urls:[...new Set(urls)],raw:t};
+  }
+  const oc=t.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})[\\/]([^\s<>]+)$/);
+  if(oc){
+    const txid=oc[2].toLowerCase(),path=oc[3];
+    return{kind:mediaKindFromPath(path),urls:[onchainFileUrl(txid,path)],raw:t};
+  }
+  return{kind:'file',urls:[],raw:t};
+}
+function mediaAttrs(urls=[]){
+  const [first,...rest]=urls.filter(Boolean);
+  if(!first) return '';
+  if(!rest.length) return `src="${esc(first)}"`;
+  return `src="${esc(first)}" data-cands="${esc(JSON.stringify(rest))}" onerror="media_fallback(this)"`;
+}
+window.media_fallback=function(el){
+  try{
+    const cands=JSON.parse(el.dataset.cands||'[]');
+    if(cands.length){el.dataset.cands=JSON.stringify(cands.slice(1));el.src=cands[0];}
+    else{
+      if(el.tagName==='IMG') el.closest('.tweet-media')?.remove();
+      else el.removeAttribute('onerror');
+    }
+  }catch{
+    if(el.tagName==='IMG') el.closest('.tweet-media')?.remove();
+    else el.removeAttribute('onerror');
+  }
+};
+// Returns ordered candidate URLs for a profile image (CID-only first, then CID+path, per SupTV pattern)
+function profileImgCandidates(ref){
+  const v=norm(ref);if(!v) return [];
+  if(/^https?:\/\//i.test(v)) return [v];
+  const ipfs=extractIpfsParts(v);
+  if(ipfs?.cid){
+    const cands=[];
+    // Try CID-only on each gateway first (like SupTV / SupRadio)
+    IPFS_GWS.forEach((gw,gi)=>cands.push(buildIpfsUrl(ipfs.cid,'',gi)));
+    // Then CID+path on each gateway (if path is present)
+    if(ipfs.path) IPFS_GWS.forEach((gw,gi)=>cands.push(buildIpfsUrl(ipfs.cid,ipfs.path,gi)));
+    return cands;
+  }
+  const oc=v.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})[\\/]([^\s<>]+)$/);
+  if(oc) return[onchainFileUrl(oc[2],oc[3])];
+  return[];
+}
+function profileImgUrl(ref){
+  const c=profileImgCandidates(ref);return c.length?c[0]:FALLBACK_AVI;
+}
+// Returns an attribute string for <img> tags: src="..." data-cands="[...]" onerror="pi_err(this)"
+function profileImgAttrs(ref){
+  const cands=profileImgCandidates(ref);
+  if(!cands.length) return `src="${FALLBACK_AVI}"`;
+  const [first,...rest]=cands;
+  const fallbacks=[...rest,FALLBACK_AVI];
+  return`src="${esc(first)}" data-cands="${esc(JSON.stringify(fallbacks))}" onerror="pi_err(this)"`;
+}
+// Cascade onerror handler - advances through data-cands list
+window.pi_err=function(el){
+  try{
+    const cands=JSON.parse(el.dataset.cands||'[]');
+    if(cands.length){
+      el.dataset.cands=JSON.stringify(cands.slice(1));
+      el.src=cands[0];
+    }else{
+      el.removeAttribute('onerror');el.src=FALLBACK_AVI;
+    }
+  }catch{el.removeAttribute('onerror');el.src=FALLBACK_AVI;}
+};
+
+/* ═══════════════════════════════════════════════════
+   API HELPERS
+═══════════════════════════════════════════════════ */
+async function fetchJ(url,timeout=15000){
+  const ac=new AbortController(),id=setTimeout(()=>ac.abort(),timeout);
+  try{
+    const r=await fetch(url,{signal:ac.signal});
+    if(!r.ok) throw new Error(`HTTP ${r.status} from ${url}`);
+    return await r.json();
+  }finally{clearTimeout(id);}
+}
+async function getBalance(addr){
+  const r=await fetch(`${MEMPOOL_API}/address/${encodeURIComponent(addr)}`);
+  if(!r.ok) throw new Error(`Balance lookup failed ${r.status}`);
+  const p=await r.json();
+  const cs=p?.chain_stats||{},ms=p?.mempool_stats||{};
+  return{confirmed:Number(cs.funded_txo_sum||0)-Number(cs.spent_txo_sum||0),unconfirmed:Number(ms.funded_txo_sum||0)-Number(ms.spent_txo_sum||0)};
+}
+
+function normalizeProfile(raw,fallbackAddr=''){
+  if(!raw||typeof raw!=='object') return null;
+  const creators=Array.isArray(raw.Creators)?raw.Creators.filter(x=>typeof x==='string'):Object.keys(raw.Creators||{}).filter(k=>k!=='0');
+  const addr=fallbackAddr||norm(raw.Address||raw._address||creators[0]||'');
+  return{
+    addr,creators,
+    urn:norm(raw.URN||raw.urn||raw.DisplayName||''),
+    displayName:norm(raw.DisplayName||raw.URN||raw.urn||addr||'Unknown'),
+    bio:norm(raw.Bio||raw.bio||''),
+    image:norm(raw.Image||raw.IMG||raw.img||raw.image||raw.ProfileImage||raw.profileImage||raw.profileImageUrl||raw.ImageUrl||''),
+    createdDate:raw.CreatedDate||raw['Created Date']||raw.createdDate||'',
+    changedDate:raw.ChangedDate||raw['Changed Date']||raw.changedDate||'',
+    firstName:norm(raw.FirstName||raw.fnm||''),
+    middleName:norm(raw.MiddleName||raw.mnm||''),
+    lastName:norm(raw.LastName||raw.lnm||''),
+    suffix:norm(raw.Suffix||raw.sfx||''),
+    pkx:norm(raw.PublicKeyX||raw.pkx||''),
+    pky:norm(raw.PublicKeyY||raw.pky||''),
+    urls:raw.URL||raw.Url||raw.url||{},
+    loc:raw.Location||raw.Loc||raw.loc||{},
+  };
+}
+function normalizeRoot(raw){
+  if(!raw||typeof raw!=='object') return null;
+  const rawMsg=raw.Message??raw['Message']??'';
+  const message=Array.isArray(rawMsg)?rawMsg.join('\n'):String(rawMsg??'');
+  const signedBy=norm(raw['Signed By']??raw.SignedBy??'');
+  const blockDate=raw['Block Date']??raw.BlockDate??'';
+  const txId=norm(raw['Transaction Id']??raw.TransactionId??raw['Transaction ID']??'').toLowerCase();
+  const outputObj=raw.Output??raw['Output']??{};
+  const outputAddrs=Object.keys(outputObj||{});
+  const rawFile=raw.File??raw['File']??null;
+  const files=(rawFile&&typeof rawFile==='object'&&!Array.isArray(rawFile))?Object.keys(rawFile).filter(f=>f&&f!=='SIG'):[];
+  return{message,fromAddr:signedBy,toAddrs:outputAddrs.length>1?outputAddrs.slice(Math.max(0,outputAddrs.length-3),outputAddrs.length-1):[],blockDate,txId,files,raw};
+}
+
+async function fetchProfileByAddr(addr){
+  const key=`a:${addr}`;
+  if(S.profileCache.has(key)) return S.profileCache.get(key);
+  if(S.profileReqCache.has(key)) return S.profileReqCache.get(key);
+  const req=(async()=>{
+    const r=await fetchJ(`${API_BASE}/GetProfileByAddress/${encodeURIComponent(addr)}?mainnet=false`);
+    let p=normalizeProfile(Array.isArray(r)?r[0]:r,addr);
+    if(p?.urn&&!p.image){
+      try{
+        const byUrn=await fetchProfileByURN(p.urn);
+        if(byUrn?.image) p={...p,image:byUrn.image};
+      }catch{}
+    }
+    if(p){S.profileCache.set(key,p);if(p.urn)S.profileCache.set(`u:${p.urn}`,p);}
+    return p;
+  })().finally(()=>S.profileReqCache.delete(key));
+  S.profileReqCache.set(key,req);
+  return req;
+}
+async function fetchProfileByURN(urn){
+  const key=`u:${urn}`;
+  if(S.profileCache.has(key)) return S.profileCache.get(key);
+  if(S.profileReqCache.has(key)) return S.profileReqCache.get(key);
+  const req=(async()=>{
+    const r=await fetchJ(`${API_BASE}/GetProfileByURN/${encodeURIComponent(urn)}?mainnet=false`);
+    const p=normalizeProfile(Array.isArray(r)?r[0]:r);
+    if(p){S.profileCache.set(key,p);if(p.addr)S.profileCache.set(`a:${p.addr}`,p);}
+    return p;
+  })().finally(()=>S.profileReqCache.delete(key));
+  S.profileReqCache.set(key,req);
+  return req;
+}
+async function isOfficial(profile){
+  if(!profile?.urn||!profile?.addr) return true;
+  try{const off=await fetchProfileByURN(profile.urn);return Boolean(off?.addr&&off.addr===profile.addr);}catch{return true;}
+}
+async function fetchMessages(addr,qty=25){
+  const r=await fetchJ(`${API_BASE}/GetPublicMessagesByAddress/${encodeURIComponent(addr)}?mainnet=false&skip=0&qty=${qty}`,30000);
+  return blockFilterRows((Array.isArray(r)?r:[]).map(item=>normalizeRoot(item.Root||item.root||item)).filter(Boolean));
+}
+async function fetchSingleRoot(txid){
+  const r=await fetchJ(`${API_BASE}/GetRootByTransactionID/${encodeURIComponent(txid)}?mainnet=false&verbose=false`,20000);
+  return normalizeRoot(Array.isArray(r)?r[0]:r);
+}
+async function searchProfiles(q,qty=8){
+  return fetchJ(`${API_BASE}/GetKnownProfilesBySearchString?searchString=${encodeURIComponent(q)}&qty=${qty}&skip=0&mainnet=false`,20000).catch(()=>[]);
+}
+async function searchRoots(q,qty=12){
+  return fetchJ(`${API_BASE}/GetKnownRootsBySearchString?searchString=${encodeURIComponent(q)}&qty=${qty}&skip=0&mainnet=false&showSystemFiles=false`,20000).catch(()=>[]);
+}
+
+/* parse message body to get clean text, attachments, links */
+function parseMsg(text){
+  const dec=String(text??'').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
+  const attachments=[],links=[];
+  const clean=dec.replace(/<<[^>]+>>/g,'').trim();
+  const refs=dec.match(/<<[^>]+>>/g)||[];
+  refs.forEach(ref=>{
+    const inner=ref.slice(2,-2).trim();
+    if(!inner||/^-?\d+$/.test(inner)||TXID_RE.test(inner)) return;
+    if(/^https?:\/\//i.test(inner)) links.push(inner);
+    else if(/^IPFS:/i.test(inner)||/^[0-9a-fA-F]{64}[\\/]/.test(inner)||/^(BTC|LTC|DOG|MZC):[0-9a-fA-F]{64}[\\/]/i.test(inner)) attachments.push(inner);
+  });
+  return{clean,attachments,links};
+}
+function annotateText(text){
+  return esc(text)
+    .replace(/(@[A-Za-z0-9\/]{1,64})/g,'<span class="mention" onclick="openUserProfile(\'$1\'.slice(1))">$1</span>')
+    .replace(/(#[A-Za-z0-9_-]{2,32})/g,'<span class="tag" onclick="exploreTag(\'$1\'.slice(1))">$1</span>')
+    .replace(/(&lt;&lt;[0-9a-fA-F]{64}&gt;&gt;)/g,'<span class="cref">$1</span>');
+}
+function classifyThreadActions(message=''){
+  const dec=String(message||'').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
+  const refs=[...dec.matchAll(/<<([^>]+)>>/g)].map(m=>norm(m[1]));
+  const text=dec.replace(/<<[^>]+>>/g,'').trim();
+  const hasTxidRef=refs.some(r=>TXID_RE.test(r));
+  const hasAttachment=refs.some(r=>!TXID_RE.test(r)&&!/^[-+]?\d+$/.test(r)&&(r.startsWith('IPFS:')||/^[0-9a-fA-F]{64}[\\/]/.test(r)||/^(BTC|LTC|DOG|MZC):[0-9a-fA-F]{64}[\\/]/i.test(r)||/^https?:\/\//i.test(r)));
+  return{
+    comment:Boolean(text||hasAttachment),
+    retweet:hasTxidRef
+  };
+}
+function extractInlinePoll(text=''){
+  const lines=String(text||'').split('\n');
+  const idx=lines.findIndex(l=>/^poll\s*:/i.test(norm(l)));
+  if(idx<0) return null;
+  const q=norm(lines[idx].replace(/^poll\s*:\s*/i,''));
+  if(!q) return null;
+  const opts=[];
+  for(let i=idx+1;i<lines.length;i++){
+    const ln=norm(lines[i]);
+    if(/^-+\s+/.test(ln)) opts.push(ln.replace(/^-+\s+/,''));
+    else if(ln) break;
+  }
+  if(!opts.length) return null;
+  return{
+    question:q,
+    options:opts.slice(0,12),
+    textWithoutPoll:[...lines.slice(0,idx),...lines.slice(idx+1+opts.length)].join('\n').trim()
+  };
+}
+function renderPollCardHtml(txid,poll){
+  const pid=`poll-${txid}`;
+  const rows=poll.options.map((opt,i)=>`<div class="poll-opt"><div class="poll-opt-row"><span>${esc(opt)}</span><span id="${pid}-c-${i}">0 (0%)</span></div><div class="poll-bar-wrap"><div class="poll-bar" id="${pid}-b-${i}"></div></div></div>`).join('');
+  return`<div class="poll-card"><div class="poll-title">📊 Poll · ${esc(poll.question)}</div>${rows}<button class="poll-calc-btn" onclick="calcPoll('${esc(txid)}',this)">Calculate</button></div>`;
+}
+window.calcPoll=async function(txid,btn){
+  try{
+    if(btn) btn.disabled=true;
+    const wrap=btn?.closest('.poll-card');
+    const root=await fetchSingleRoot(txid);
+    if(!root) throw new Error('Poll root unavailable');
+    const poll=extractInlinePoll(parseMsg(root.message).clean||'');
+    if(!poll) throw new Error('Poll not found');
+    const replies=await fetchMessages(await kwAddr(txid),120);
+    const counts=poll.options.map(()=>0);
+    replies.forEach(r=>{
+      if(!r?.txId||r.txId===txid.toLowerCase()) return;
+      const body=norm(parseMsg(r.message).clean).toLowerCase();
+      if(!body) return;
+      const hit=poll.options.findIndex(o=>body===norm(o).toLowerCase()||body.startsWith(`${norm(o).toLowerCase()}\n`));
+      if(hit>=0) counts[hit]+=1;
+    });
+    const total=counts.reduce((a,b)=>a+b,0);
+    counts.forEach((c,i)=>{
+      const pct=total?Math.round((c/total)*100):0;
+      const cEl=document.getElementById(`poll-${txid}-c-${i}`);
+      const bEl=document.getElementById(`poll-${txid}-b-${i}`);
+      if(cEl) cEl.textContent=`${c} (${pct}%)`;
+      if(bEl) bEl.style.width=`${pct}%`;
+    });
+  }catch(e){
+    if(btn) btn.textContent=e.message||'Calculate failed';
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='Calculate';}
+  }
+};
+
+
+/* ═══════════════════════════════════════════════════
+   RENDER HELPERS
+═══════════════════════════════════════════════════ */
+function renderAttachEl(token){
+  const wrap=document.createElement('div');
+  const info=attachmentPreviewCandidates(token),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls);
+  if(preview&&info.kind==='image'){wrap.className='tweet-media';wrap.innerHTML=`<img ${attrs} alt="Attachment">`;}
+  else if(preview&&info.kind==='audio'){wrap.className='tweet-media';wrap.innerHTML=`<audio controls ${attrs}></audio>`;}
+  else if(preview&&info.kind==='video'){wrap.className='tweet-media';wrap.innerHTML=`<video controls ${attrs} style="width:100%"></video>`;}
+  else if(preview){wrap.className='tweet-media-file';wrap.innerHTML=`📎 <a href="${esc(preview)}" target="_blank" rel="noopener">${esc(info.raw.slice(0,60))}</a>`;}
+  else{wrap.className='tweet-media-file';wrap.innerHTML=`📎 <span class="mono">${esc(info.raw.slice(0,80))}</span>`;}
+  return wrap;
+}
+
+function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='modal'}={}){
+  const art=document.createElement('article');
+  art.className='tweet';
+  const fromAddr=norm(root.fromAddr);
+  const cached=profileCache[fromAddr]||profileCache[fromAddr.toLowerCase()];
+  const aviAttrs=cached?profileImgAttrs(cached.image):`src="${FALLBACK_AVI}"`;
+  const displayName=cached?cached.displayName:shortAddr(fromAddr);
+  const handle=cached?cached.urn:'';
+  const profileTarget=handle||fromAddr;
+  const profileNavMode=profileNav==='main'?'main':'modal';
+  const{clean,attachments,links}=parseMsg(root.message);
+  const poll=extractInlinePoll(clean);
+  const cleanText=poll?poll.textWithoutPoll:clean;
+  const metrics=(root._metrics&&typeof root._metrics==='object')?root._metrics:null;
+  const mediaHtml=[];
+  [...attachments,...root.files.map(f=>`${root.txId}/${f}`),...links].forEach(tok=>{
+    const info=attachmentPreviewCandidates(tok),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls);
+    if(preview&&info.kind==='image') mediaHtml.push(`<div class="tweet-media"><img ${attrs} alt=""></div>`);
+    else if(preview&&info.kind==='audio') mediaHtml.push(`<div class="tweet-media"><audio controls ${attrs}></audio></div>`);
+    else if(preview&&info.kind==='video') mediaHtml.push(`<div class="tweet-media"><video controls ${attrs} style="width:100%"></video></div>`);
+    else if(preview) mediaHtml.push(`<div class="tweet-media-file">📎 <a href="${esc(preview)}" target="_blank" rel="noopener">${esc(tok.slice(0,60))}</a></div>`);
+  });
+  art.innerHTML=`
+    <img class="tweet-avi" ${aviAttrs} alt="${esc(displayName)}" onclick="openProfileTarget('${esc(profileTarget)}','${profileNavMode}')">
+    <div class="tweet-body">
+      <div class="tweet-header">
+        <span class="tweet-name" onclick="openProfileTarget('${esc(profileTarget)}','${profileNavMode}')">${esc(displayName)}</span>
+        ${handle?`<span class="tweet-handle">@${esc(handle)}</span>`:''}
+        ${root.blockDate?`<span class="tweet-time">· ${fmtRel(root.blockDate)}</span>`:''}
+      </div>
+      <div class="tweet-text">${annotateText(cleanText||'')}</div>
+      ${poll?renderPollCardHtml(root.txId,poll):''}
+      ${mediaHtml.join('')}
+      ${metrics?`<div class="tweet-metrics"><span>💬 ${Number(metrics.comments||0)}</span><span>🔁 ${Number(metrics.retweets||0)}</span></div>`:''}
+      <div class="tweet-actions">
+        <button class="tw-act reply" title="Reply" onclick="openReply('${esc(root.txId)}')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        </button>
+        <button class="tw-act" title="View thread" onclick="openPostDetail('${esc(root.txId)}')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+          Thread
+        </button>
+        <button class="tw-act" title="Copy txid" onclick="copyTxid('${esc(root.txId)}')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          ${root.txId?shortAddr(root.txId):''}
+        </button>
+        <button class="tw-act" title="Open on Mempool" onclick="window.open('https://mempool.space/testnet/tx/${esc(root.txId)}','_blank')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </button>
+      </div>
+    </div>`;
+  return art;
+}
+
+function buildProfilePageEl(profile, official, posts=[], ownProfile=false, extraProfileCache={}){
+  const wrap=document.createElement('div');
+  const imgAttrs=profileImgAttrs(profile.image);
+  const postCache={...extraProfileCache,[profile.addr]:profile};
+  const blocked=isBlockedAddr(profile.addr);
+  const followed=S.followed.has(profile.addr);
+  const linksHtml=Object.entries(profile.urls||{}).map(([k,v])=>`<a href="${esc(v)}" target="_blank" rel="noopener" style="color:var(--accent);">🔗 ${esc(k)}</a>`).join(' ');
+  const locHtml=Object.values(profile.loc||{}).join(', ');
+  wrap.innerHTML=`
+    <div class="profile-banner"></div>
+    <div style="position:relative;">
+      <div class="profile-avi-wrap"><img class="profile-avi-lg" ${imgAttrs} alt="${esc(profile.displayName)}"></div>
+      ${ownProfile?`<div class="profile-top-bar"><button class="btn-edit-profile" onclick="openModal('modalProfileEdit')">Edit profile</button></div>`:
+        `<div class="profile-top-bar"><div class="profile-act-row">
+          <button class="btn btn-sm ${followed?'btn-out':'btn-acc'}" onclick="toggleFollowAddr('${esc(profile.addr)}')">${followed?'Unfollow':'Follow'}</button>
+          <button class="btn btn-sm ${blocked?'btn-out':'btn-dng'}" onclick="toggleBlockAddr('${esc(profile.addr)}')">${blocked?'Unblock':'Block'}</button>
+        </div></div>`}
+    </div>
+    <div class="profile-info">
+      <div class="profile-name">${esc(profile.displayName)}</div>
+      ${profile.urn?`<div class="profile-handle">@${esc(profile.urn)} <span class="${official?'badge-v':'badge-v badge-unoff'}">${official?'✓ Official':'! Not official'}</span></div>`:
+        `<div class="profile-handle mono">${esc(profile.addr)}</div>`}
+      ${profile.bio?`<div class="profile-bio">${esc(profile.bio)}</div>`:''}
+      <div class="profile-meta-row">
+        ${locHtml?`<span>📍 ${esc(locHtml)}</span>`:''}
+        ${profile.createdDate?`<span>🗓 Joined ${fmtDate(profile.createdDate)}</span>`:''}
+        ${linksHtml}
+      </div>
+      <div class="wallet-addr-val mono" style="font-size:.78rem;color:var(--muted);">${esc(profile.addr)}</div>
+    </div>`;
+  const tabBar=document.createElement('div');
+  tabBar.className='tab-bar';
+  tabBar.innerHTML=`<button class="tab-btn active">Posts</button>`;
+  wrap.appendChild(tabBar);
+  const feedWrap=document.createElement('div');
+  if(blocked){feedWrap.innerHTML='<div class="feed-empty">This address is blocked. Unblock to view content.</div>';}
+  else if(!posts.length){feedWrap.innerHTML='<div class="feed-empty">No posts yet.</div>';}
+  else{ blockFilterRows(posts).forEach(p=>{const el=buildTweetEl(p,{profileCache:postCache});feedWrap.appendChild(el);}); }
+  wrap.appendChild(feedWrap);
+  return wrap;
+}
+
+/* ═══════════════════════════════════════════════════
+   WALLET UI
+═══════════════════════════════════════════════════ */
+function renderWalletUI(container, balance=null){
+  const locked=!S.priv;
+  let html='';
+  if(!locked){
+    html+=`<div class="wallet-address-card">
+      <div class="wallet-addr-title">Wallet addresses (main + change)</div>
+      <div class="wallet-addr-val mono">${esc(S.addr)}</div>
+      <div class="wallet-balances" id="walletBalances">
+        <span style="color:var(--muted);font-size:.82rem;">Loading balances…</span>
+      </div>
+    </div>
+    <div class="f-status info" id="walletStatusMsg" style="margin-bottom:12px;">Wallet unlocked ✓ (main + ${CHANGE_COUNT} change addresses)</div>
+    <div class="btn-row" style="margin-bottom:16px;">
+      <button class="btn btn-out btn-sm" onclick="exportWif()">Export WIF</button>
+      <button class="btn btn-pri btn-sm" onclick="consolidateChange()">Consolidate</button>
+      <button class="btn btn-out btn-sm" onclick="lockWallet()">Lock</button>
+      <button class="btn btn-dng btn-sm" onclick="forgetWallet()">Forget key</button>
+    </div>`;
+  } else {
+    html+=`<div class="f-field"><label class="f-label">WIF private key (testnet3)</label><input class="f-input" id="wWif" type="password" placeholder="c… or 9… testnet3 WIF" autocomplete="off"></div>
+    <div class="f-field"><label class="f-label">Encryption password (min ${WALLET_MIN_PASS} chars)</label><input class="f-input" id="wPass" type="password" autocomplete="new-password"></div>
+    <div class="btn-row" style="margin-bottom:16px;">
+      <button class="btn btn-out btn-sm" onclick="generateKey()">Generate address</button>
+      <button class="btn btn-acc btn-sm" onclick="importWallet()">Import + unlock</button>
+    </div>
+    <hr class="divider">
+    <div class="f-field"><label class="f-label">Unlock saved wallet</label><input class="f-input" id="wUnlockPass" type="password" autocomplete="current-password" placeholder="Unlock password"></div>
+    <button class="btn btn-acc btn-sm" onclick="unlockWallet()">Unlock</button>`;
+    const stored=localStorage.getItem(WALLET_KEY);
+    if(!stored) html+=`<div class="f-status warn" style="margin-top:10px;">No stored wallet found — import or generate one first.</div>`;
+  }
+  html+=`<div id="walletMsg" class="f-status hidden" style="margin-top:10px;"></div>`;
+  container.innerHTML=html;
+  container.querySelector('#wWif')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();importWallet();}});
+  container.querySelector('#wPass')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();importWallet();}});
+  container.querySelector('#wUnlockPass')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();unlockWallet();}});
+  if(!locked) refreshBalance();
+}
+async function refreshBalance(){
+  if(!S.addr||!S.priv) return;
+  try{
+    // Use cached keyring (same derivation as SupTV/SupRadio)
+    const kr=S.keyring||await buildKeyring(S.priv);
+    if(!S.keyring) S.keyring=kr;
+    // Fetch balances for main + all change addresses in parallel
+    const bals=await Promise.all(kr.all.map(sg=>getBalance(sg.addr).catch(()=>({confirmed:0,unconfirmed:0}))));
+    const total=bals.reduce((acc,b)=>({confirmed:acc.confirmed+(b.confirmed||0),unconfirmed:acc.unconfirmed+(b.unconfirmed||0)}),{confirmed:0,unconfirmed:0});
+    // Build per-address detail
+    const addrLines=kr.all.map((sg,i)=>{const b=bals[i];return b.confirmed||b.unconfirmed?`<div style="font-size:.75rem;color:var(--muted);margin-top:2px;">${esc(sg.label)}: ${(b.confirmed/1e8).toFixed(8)} confirmed</div>`:''}).join('');
+    const bw=document.querySelector('#walletBalances');
+    if(bw) bw.innerHTML=`<span class="balance-chip balance-confirmed">✓ ${(total.confirmed/1e8).toFixed(8)} tBTC confirmed</span><span class="balance-chip balance-unconf">⏳ ${(total.unconfirmed/1e8).toFixed(8)} tBTC unconfirmed</span>${addrLines}`;
+  }catch{}
+}
+function activeWalletContainer(preferEl=null){
+  if(preferEl){
+    const parent=preferEl.closest('#walletModalBody, #walletViewBody');
+    if(parent) return parent;
+  }
+  const wm=$('modalWallet');
+  if(wm&&!wm.classList.contains('hidden')){
+    const body=$('walletModalBody');
+    if(body) return body;
+  }
+  return $('walletViewBody')||$('walletModalBody');
+}
+function walletField(id,preferEl=null){
+  const container=activeWalletContainer(preferEl);
+  return container?.querySelector(`#${id}`)||document.querySelector(`#${id}`);
+}
+function walletMsg(msg,kind='info',preferEl=null){
+  const container=activeWalletContainer(preferEl);
+  const el=container?.querySelector('#walletMsg')||$('walletMsg');
+  if(el) showStatus(el,msg,kind);
+}
+
+function updateWalletMini(){
+  const mini=$('walletMini');
+  if(!S.addr){if(mini)mini.classList.add('hidden');return;}
+  if(mini){
+    mini.classList.remove('hidden');
+    const avi=$('walletMiniAvi'),nm=$('walletMiniName'),ad=$('walletMiniAddr');
+    if(S.myProfile&&avi){const cands=profileImgCandidates(S.myProfile.image);if(cands.length){avi.src=cands[0];avi.dataset.cands=JSON.stringify([...cands.slice(1),FALLBACK_AVI]);avi.onerror=()=>window.pi_err(avi);}else avi.src=FALLBACK_AVI;}
+    else if(avi) avi.src=FALLBACK_AVI;
+    if(nm) nm.textContent=S.myProfile?.displayName||shortAddr(S.addr);
+    if(ad) ad.textContent=shortAddr(S.addr);
+  }
+  // also update inline compose avi with cascade
+  const ica=$('inlineComposeAvi'),cma=$('cmAvi');
+  const cands=S.myProfile?profileImgCandidates(S.myProfile.image):[];
+  const src=cands.length?cands[0]:FALLBACK_AVI;
+  const fb=JSON.stringify([...cands.slice(1),FALLBACK_AVI]);
+  [ica,cma].forEach(el=>{if(!el)return;el.src=src;el.dataset.cands=fb;el.onerror=()=>window.pi_err(el);});
+  // show inline compose
+  const ic=$('inlineCompose');
+  if(ic) ic.classList.toggle('hidden',!S.addr);
+}
+async function afterUnlock(){
+  updateWalletMini();
+  // cache keyring for balance display (same derivation as SupTV/SupRadio)
+  try{ S.keyring=await buildKeyring(S.priv); }catch{}
+  // load own profile
+  try{S.myProfile=await fetchProfileByAddr(S.addr);updateWalletMini();}catch{}
+  // render wallet views
+  const wvb=$('walletViewBody');
+  if(wvb) renderWalletUI(wvb);
+  const wmb=$('walletModalBody');
+  if(wmb) renderWalletUI(wmb);
+  renderSidebarList();
+  // populate profile editor
+  populateProfileEditor(S.myProfile);
+  // refresh my profile view if active
+  if(S.view==='myprofile') loadMyProfile();
+}
+
+async function generateKey(){
+  walletMsg('Generating…');
+  try{
+    let pb,wif='',addr='';
+    const hasBadPair=v=>/[\\/:*?"|<>][0-9]/.test(String(v||'').slice(0,120));
+    let attempts=0;
+    do{
+      attempts++;
+      pb=crypto.getRandomValues(new Uint8Array(32));
+      if(b2bi(pb)===0n||b2bi(pb)>=N) continue;
+      wif=await priv2wif(pb);addr=await priv2addr(pb);
+    }while(attempts<64&&(!wif||!addr||hasBadPair(wif)||hasBadPair(addr)));
+    if(!wif) throw new Error('Try again');
+    const el=walletField('wWif');if(el) el.value=wif;
+    walletMsg(`Generated ${addr}. Set a password and click Import + unlock.`,'good');
+  }catch(e){walletMsg(e.message||'Failed','danger');}
+}
+async function importWallet(){
+  const wifEl=walletField('wWif'),passEl=walletField('wPass');
+  const wif=norm((wifEl||{}).value||''),pass=norm((passEl||{}).value||'');
+  if(!wif) return walletMsg('Enter a testnet3 WIF key','warn');
+  if(pass.length<WALLET_MIN_PASS) return walletMsg(`Password must be ≥ ${WALLET_MIN_PASS} chars`,'warn');
+  walletMsg('Encrypting…');
+  try{
+    const pb=await wif2priv(wif);
+    const addr=await priv2addr(pb);
+    const enc=await encryptPriv(pb,pass);
+    localStorage.setItem(WALLET_KEY,JSON.stringify(enc));
+    S.priv=pb;S.addr=addr;
+    if(wifEl)wifEl.value='';if(passEl)passEl.value='';
+    walletMsg(`Unlocked: ${addr}`,'good');
+    await afterUnlock();
+  }catch(e){walletMsg(e.message||'Import failed','danger');}
+}
+async function unlockWallet(){
+  const passEl=walletField('wUnlockPass');
+  const pass=norm((passEl||{}).value||'');
+  if(!pass) return walletMsg('Enter password','warn');
+  walletMsg('Unlocking…');
+  try{
+    const stored=JSON.parse(localStorage.getItem(WALLET_KEY)||'null');
+    if(!stored) throw new Error('No stored wallet — import first');
+    const pb=await decryptPriv(stored,pass);
+    const addr=await priv2addr(pb);
+    S.priv=pb;S.addr=addr;
+    if(passEl)passEl.value='';
+    walletMsg(`Unlocked: ${addr}`,'good');
+    await afterUnlock();
+  }catch(e){walletMsg(e.message||'Unlock failed','danger');}
+}
+async function exportWif(){
+  if(!S.priv) return walletMsg('Unlock wallet first','warn');
+  try{const wif=await priv2wif(S.priv);await navigator.clipboard.writeText(wif);walletMsg('WIF copied to clipboard','good');}
+  catch(e){walletMsg(e.message||'Copy failed','danger');}
+}
+function lockWallet(){
+  S.priv=null;S.addr='';S.myProfile=null;S.keyring=null;
+  updateWalletMini();
+  const wvb=$('walletViewBody');if(wvb) renderWalletUI(wvb);
+  const wmb=$('walletModalBody');if(wmb) renderWalletUI(wmb);
+  const ic=$('inlineCompose');if(ic)ic.classList.add('hidden');
+}
+function forgetWallet(){
+  localStorage.removeItem(WALLET_KEY);
+  lockWallet();
+  walletMsg('Wallet forgotten','warn');
+}
+window.consolidateChange=async function(){
+  walletMsg('Consolidating change funds…','info');
+  try{
+    const txid=await consolidateChangeFunds();
+    walletMsg(`Consolidated to main address. txid: ${txid}`,'good');
+    refreshBalance();
+  }catch(e){walletMsg(e.message||'Consolidation failed','danger');}
+};
+
+/* ═══════════════════════════════════════════════════
+   PROFILE EDITOR
+═══════════════════════════════════════════════════ */
+function addKvRow(containerId,kind){
+  const container=$(containerId);if(!container) return;
+  const row=document.createElement('div');
+  row.className='kv-row';
+  row.innerHTML=`<input class="f-input" placeholder="${kind==='url'?'Label':'Key'}" data-role="key"><input class="f-input" placeholder="${kind==='url'?'URL':'Value'}" data-role="value"><button class="btn btn-dng btn-sm" onclick="this.parentElement.remove()">✕</button>`;
+  container.appendChild(row);
+}
+function collectKv(containerId){
+  const el=$(containerId);if(!el)return{};
+  return [...el.children].reduce((acc,row)=>{
+    const k=norm(row.querySelector('[data-role="key"]')?.value||'');
+    const v=norm(row.querySelector('[data-role="value"]')?.value||'');
+    if(k&&v) acc[k]=v;
+    return acc;
+  },{});
+}
+function populateProfileEditor(p){
+  const set=(id,v)=>{const el=$(id);if(el)el.value=v||'';};
+  const chk=(id,v)=>{const el=$(id);if(el)el.checked=Boolean(v);};
+  set('peUrn',p?.urn||''); set('peFnm',p?.firstName||''); set('peMnm',p?.middleName||'');
+  set('peLnm',p?.lastName||''); set('peSfx',p?.suffix||''); set('peBio',p?.bio||'');
+  set('peImg',p?.image||'');
+  chk('peEnableSec',p?.pkx||p?.pky);
+  S.normalizedImg=p?.image||'';
+  S.handleCheck=null;
+  setChip($('peHandleBadge'),'Unchecked');
+  setChip($('peImgBadge'),p?.image?'Valid':'Unchecked',p?.image?'good':'');
+  const details=$('peMoreDetails'),toggle=$('peDetailsToggle');
+  if(details) details.classList.add('hidden');
+  if(toggle) toggle.textContent='Show more details';
+  const hasExistingProfile=Boolean(p?.addr||p?.urn||p?.bio||p?.image||p?.firstName||p?.lastName);
+  const title=$('peModalTitle'),saveBtn=$('peSaveBtn');
+  if(title) title.textContent=hasExistingProfile?'Edit Profile':'Claim New User';
+  if(saveBtn) saveBtn.textContent=hasExistingProfile?'Save':'Claim';
+  const prevWrap=$('peImgPreview'),prevImg=$('peImgPreviewImg');
+  const cands=profileImgCandidates(p?.image||'');
+  if(prevWrap&&prevImg&&cands.length){
+    prevWrap.classList.remove('hidden');
+    prevImg.src=cands[0];
+    prevImg.dataset.cands=JSON.stringify([...cands.slice(1),FALLBACK_AVI]);
+    prevImg.onerror=()=>window.pi_err(prevImg);
+  }else if(prevWrap){
+    prevWrap.classList.add('hidden');
+  }
+  const ul=$('peUrlPairs'),ll=$('peLocPairs');
+  if(ul){clr(ul);Object.entries(p?.urls||{}).forEach(([k,v])=>{addKvRow('peUrlPairs','url');const r=ul.lastElementChild;r.querySelector('[data-role="key"]').value=k;r.querySelector('[data-role="value"]').value=v;});if(!ul.children.length)addKvRow('peUrlPairs','url');}
+  if(ll){clr(ll);Object.entries(p?.loc||{}).forEach(([k,v])=>{addKvRow('peLocPairs','loc');const r=ll.lastElementChild;r.querySelector('[data-role="key"]').value=k;r.querySelector('[data-role="value"]').value=v;});if(!ll.children.length)addKvRow('peLocPairs','loc');}
+}
+async function checkProfileHandle(){
+  const urn=norm($('peUrn')?.value||'');
+  const st=$('peStatus');
+  if(!urn)return showStatus(st,'Enter a handle first','warn');
+  showStatus(st,'Checking…','info');
+  try{
+    const found=await fetchProfileByURN(urn);
+    if(!found?.addr){S.handleCheck={urn,ok:true};setChip($('peHandleBadge'),'Available','good');showStatus(st,`@${urn} is available`,'good');}
+    else if(found.addr===S.addr){S.handleCheck={urn,ok:true};setChip($('peHandleBadge'),'Yours','good');showStatus(st,`@${urn} is yours`,'good');}
+    else{S.handleCheck={urn,ok:false};setChip($('peHandleBadge'),'Taken','danger');showStatus(st,`@${urn} is taken by ${found.addr}`,'danger');}
+  }catch(e){S.handleCheck=null;setChip($('peHandleBadge'),'Unknown','warn');showStatus(st,`Error: ${e.message}`,'warn');}
+}
+async function validateProfileImage(){
+  const st=$('peStatus');
+  try{
+    const raw=norm($('peImg')?.value||'');
+    if(!raw){
+      S.normalizedImg='';
+      const prev=$('peImgPreview');
+      if(prev) prev.classList.add('hidden');
+      setChip($('peImgBadge'),'Unchecked');
+      showStatus(st,'Image cleared (optional field).','info');
+      return;
+    }
+    const norm_=await normalizeAttach(raw,{imgOnly:true});
+    S.normalizedImg=norm_.canonical;
+    const el=$('peImg');if(el)el.value=norm_.canonical;
+    const prev=$('peImgPreview'),img=$('peImgPreviewImg');
+    if(prev)prev.classList.remove('hidden');
+    if(img){
+      const cands=profileImgCandidates(norm_.canonical);
+      img.src=cands[0]||norm_.preview||norm_.canonical;
+      img.dataset.cands=JSON.stringify([...cands.slice(1),FALLBACK_AVI]);
+      img.onerror=()=>window.pi_err(img);
+    }
+    setChip($('peImgBadge'),'Valid','good');
+    showStatus(st,'Image validated','good');
+  }catch(e){setChip($('peImgBadge'),'Invalid','danger');showStatus(st,e.message||'Image validation failed','danger');}
+}
+async function estimateProfileTx(){
+  const st=$('peStatus'),cn=$('peCostNote');
+  try{
+    const outputs=await buildProTxPlan();
+    if(cn) cn.textContent=`${outputs.length} outputs · ${(outputs.length*AMOUNT_PER).toFixed(8)} tBTC + fee`;
+    showStatus(st,`${outputs.length} outputs · ${(outputs.length*AMOUNT_PER).toFixed(8)} tBTC + fee`,'good');
+  }catch(e){showStatus(st,e.message||'Error','danger');}
+}
+async function buildProTxPlan(){
+  if(!S.priv||!S.addr) throw new Error('Unlock wallet first');
+  const urn=norm($('peUrn')?.value||'');
+  if(!urn) throw new Error('Handle is required');
+  if(!S.handleCheck||S.handleCheck.urn!==urn||!S.handleCheck.ok) throw new Error('Check handle availability first');
+  const rawImg=norm($('peImg')?.value||'');
+  let img='';
+  if(rawImg){
+    const normImg=await normalizeAttach(rawImg,{imgOnly:true});
+    img=normImg.canonical;
+    S.normalizedImg=img;
+    const el=$('peImg');if(el) el.value=img;
+  }else{
+    S.normalizedImg='';
+  }
+  return buildProOutputs({
+    urn,
+    fnm:norm($('peFnm')?.value||''),mnm:norm($('peMnm')?.value||''),lnm:norm($('peLnm')?.value||''),sfx:norm($('peSfx')?.value||''),
+    bio:norm($('peBio')?.value||''),img,
+    urls:collectKv('peUrlPairs'),loc:collectKv('peLocPairs'),
+    enableSec:$('peEnableSec')?.checked||false
+  });
+}
+async function broadcastProfileTx(){
+  const st=$('peStatus');
+  showStatus(st,'Building transaction…','info');
+  try{
+    const outputs=await buildProTxPlan();
+    showStatus(st,`Broadcasting ${outputs.length} outputs…`,'info');
+    const txid=await broadcastTx(outputs);
+    showStatus(st,`Profile broadcast! txid: ${txid}`,'good');
+    // refresh profile cache
+    setTimeout(async()=>{
+      try{S.myProfile=await fetchProfileByAddr(S.addr);updateWalletMini();if(S.view==='myprofile')loadMyProfile();}catch{}
+    },4000);
+  }catch(e){showStatus(st,e.message||'Broadcast failed','danger');}
+}
+
+/* ═══════════════════════════════════════════════════
+   COMPOSE
+═══════════════════════════════════════════════════ */
+function renderComposeAttachments(){
+  const prev=$('cmAttachPreview');if(!prev) return;
+  clr(prev);
+  S.composeAttachments.forEach((tok,i)=>{
+    const item=document.createElement('div');item.className='cm-attach-item';
+    const info=attachmentPreviewCandidates(tok),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls);
+    if(preview&&info.kind==='image') item.innerHTML=`<img ${attrs} alt=""><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
+    else if(preview&&info.kind==='audio') item.innerHTML=`<audio controls ${attrs}></audio><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
+    else if(preview&&info.kind==='video') item.innerHTML=`<video controls ${attrs} style="max-height:100px;width:100%"></video><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
+    else item.innerHTML=`<div class="cm-attach-text">${esc(norm(tok).slice(0,60))}</div><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
+    prev.appendChild(item);
+  });
+}
+window.removeAttach=function(i){S.composeAttachments.splice(i,1);renderComposeAttachments();};
+async function addComposedAttachment(){
+  const inp=$('cmAttachInput'),st=$('cmAttachStatus');
+  if(!inp) return;
+  hideStatus(st);
+  try{
+    const n=await normalizeAttach(inp.value);
+    if(!S.composeAttachments.includes(n.canonical)) S.composeAttachments.push(n.canonical);
+    inp.value=n.canonical;
+    if(st)showStatus(st,`Attached: ${n.canonical.slice(0,60)}`,'good');
+    renderComposeAttachments();
+  }catch(e){if(st)showStatus(st,e.message||'Invalid attachment','danger');}
+}
+function toggleExtraFields(){const el=$('cmExtraFields');if(el)el.classList.toggle('hidden');}
+async function resolveExtraRecipients(){
+  const recs=new Set();
+  const manual=parseManualRecipients($('cmRecipients')?.value||'');
+  for(const t of manual){
+    if(isAddr(t)) recs.add(t);
+    else if(t.startsWith('@')){const p=await fetchProfileByURN(t.slice(1));if(p?.addr)recs.add(p.addr);}
+  }
+  // mentions in body
+  const body=sanitize($('cmBody')?.value||'');
+  const mentions=[...body.matchAll(MENTION_RE)].map(m=>m[1]);
+  for(const m of mentions){const p=await fetchProfileByURN(m);if(p?.addr)recs.add(p.addr);}
+  // comment txid
+  const txid=norm($('cmTxid')?.value||'').toLowerCase();
+  if(txid) recs.add(await kwAddr(txid));
+  return [...recs];
+}
+function buildMessageText(){
+  let text=sanitize($('cmBody')?.value||'');
+  const txid=norm($('cmTxid')?.value||'');
+  if(txid){if(!TXID_RE.test(txid))throw new Error('Reply txid must be 64 hex chars');text=`<<${txid.toLowerCase()}>>${text}`;}
+  return text;
+}
+async function submitCompose(){
+  if(!S.priv||!S.addr){alert('Unlock your wallet first');return;}
+  const st=$('cmStatus'),btn=$('cmSubmit');
+  const text=buildMessageText();
+  if(!norm(text)){if(st)st.textContent='Write something first';return;}
+  if(btn)btn.disabled=true;
+  if(st)st.textContent='Building…';
+  try{
+    const extras=await resolveExtraRecipients();
+    const outputs=await buildMsgOutputs({text,attachments:S.composeAttachments,extras,fromAddr:S.addr});
+    if(st)st.textContent=`Broadcasting ${outputs.length} outputs…`;
+    const txid=await broadcastTx(outputs);
+    if(st)st.textContent=`Posted! ${txid}`;
+    // clear
+    const cb=$('cmBody');if(cb){cb.value='';autoResize(cb);}
+    $('cmTxid')&&($('cmTxid').value='');$('cmRecipients')&&($('cmRecipients').value='');
+    S.composeAttachments=[];renderComposeAttachments();
+    setTimeout(()=>closeModal('modalCompose'),1500);
+  }catch(e){if(st)st.textContent=e.message||'Post failed';}
+  finally{if(btn)btn.disabled=false;}
+}
+async function submitInlinePost(){
+  if(!S.priv||!S.addr){openModal('modalWallet');return;}
+  const ta=$('inlineComposeText');
+  if(!ta||!ta.value.trim()) return;
+  const btn=$('inlinePostBtn');
+  if(btn)btn.disabled=true;
+  try{
+    const text=sanitize(ta.value);
+    const outputs=await buildMsgOutputs({text,attachments:[],extras:[],fromAddr:S.addr});
+    await broadcastTx(outputs);
+    ta.value='';autoResize(ta);
+  }catch(e){alert(e.message||'Post failed');}
+  finally{if(btn)btn.disabled=false;}
+}
+window.openReply=function(txid){
+  openModal('modalCompose');
+  const el=$('cmTxid');if(el){el.value=txid;}
+  const ef=$('cmExtraFields');if(ef)ef.classList.remove('hidden');
+};
+window.copyTxid=async function(txid){try{await navigator.clipboard.writeText(txid);}catch{}};
+
+/* ═══════════════════════════════════════════════════
+   VIEWS
+═══════════════════════════════════════════════════ */
+function switchView(view){
+  document.querySelectorAll('.view').forEach(el=>el.classList.remove('active'));
+  const target=$(`view${view.charAt(0).toUpperCase()+view.slice(1)}`);
+  if(target) target.classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(el=>{el.classList.toggle('active',el.dataset.view===view);});
+  S.view=view;
+  if(view==='myprofile'){
+  if(!S.addr){
+    const c=$('myProfileContent');
+    if(c) c.innerHTML='<div class="feed-empty">Unlock wallet to claim your profile.<div style="margin-top:12px;"><button class="btn btn-acc btn-sm" onclick="openModal(\'modalWallet\')">Unlock wallet</button> <button class="btn btn-out btn-sm" onclick="openModal(\'modalProfileEdit\')">Claim new user</button></div></div>';
+    openModal('modalWallet');
+  }else loadMyProfile();
+  }
+  if(view==='home'&&!S.feedLoaded) loadHomeFeed();
+  if(view==='wallet') renderWalletUI($('walletViewBody'));
+  if(view==='community') loadCommunityFeed();
+  setSidebarMode(view==='community'?'follows':'trending');
+}
+
+async function loadMyProfile(){
+  const c=$('myProfileContent');if(!c) return;
+  if(!S.addr){c.innerHTML='<div class="feed-empty">Unlock wallet to claim your profile.</div>';return;}
+  c.innerHTML='<div class="feed-loading"><div class="spinner"></div>Loading…</div>';
+  try{
+    S.myProfile=await fetchProfileByAddr(S.addr);
+    const official=await isOfficial(S.myProfile);
+    let posts=[];
+    if(S.myProfile?.addr) posts=await fetchMessages(S.myProfile.addr);
+    const seed={};
+    if(S.myProfile?.addr){
+      seed[S.myProfile.addr]=S.myProfile;
+      seed[S.myProfile.addr.toLowerCase()]=S.myProfile;
+    }
+    const postCache=await buildSenderProfileCache(posts,seed);
+    c.replaceChildren(buildProfilePageEl(S.myProfile||{addr:S.addr,displayName:shortAddr(S.addr),image:'',bio:'',urn:'',urls:{},loc:{}},official,posts,true,postCache));
+    const tt=$('myProfileTitle');
+    if(tt) tt.textContent=S.myProfile?.displayName||shortAddr(S.addr);
+    updateWalletMini();
+    populateProfileEditor(S.myProfile);
+  }catch(e){c.innerHTML=`<div class="feed-err">Error loading profile: ${esc(e.message)}</div>`;}
+}
+
+async function loadHomeFeed(){
+  const feed=$('homeFeed');if(!feed) return;
+  feed.innerHTML='<div class="feed-loading"><div class="spinner"></div>Loading recent posts…</div>';
+  S.feedLoaded=true;
+  try{
+    // Load trending/recent messages
+    const[prs,rts]=await Promise.all([
+      searchProfiles('',6).catch(()=>[]),
+      searchRoots('',20).catch(()=>[])
+    ]);
+    // build profile cache for senders
+    const profileCache={};
+    if(S.myProfile) profileCache[S.myProfile.addr]=S.myProfile;
+    clr(feed);
+    if(!rts.length&&!prs.length){feed.innerHTML='<div class="feed-empty">No posts found. Be the first to post!</div>';return;}
+    // render roots — unwrap Root wrapper if present (format varies by endpoint)
+    const roots=blockFilterRows(rts.map(raw=>normalizeRoot(raw?.Root||raw?.root||raw)).filter(Boolean));
+    if(!roots.length){feed.innerHTML='<div class="feed-empty">No recent posts found.</div>';return;}
+    // Batch-fetch profiles for unique senders so tweet cards show names & avatars
+    const senderAddrs=[...new Set(roots.map(r=>r.fromAddr).filter(Boolean))].slice(0,15);
+    await Promise.allSettled(senderAddrs.map(addr=>
+      fetchProfileByAddr(addr).then(p=>{if(p&&p.addr) profileCache[p.addr]=p;}).catch(()=>{})
+    ));
+    roots.forEach(root=>{
+      const el=buildTweetEl(root,{profileCache});
+      feed.appendChild(el);
+    });
+    // load trending from API (with local fallback)
+    loadTrending(roots);
+    renderSidebarList();
+  }catch(e){feed.innerHTML=`<div class="feed-err">Could not load feed: ${esc(e.message)}</div>`;}
+}
+
+async function loadTrending(rootsFallback=[]){
+  const tc=$('trendingContent');if(!tc) return;
+  try{
+    const data=await fetchJ(`${API_BASE}/GetTrendingRootSearches?qty=20`,10000);
+    const rows=Array.isArray(data)?data:[];
+    if(!rows.length) throw new Error('empty');
+    clr(tc);
+    const seen=new Set();let rendered=0;
+    for(const row of rows){
+      const term=norm(row?.searchString||row?.SearchString||row?.keyword||row?.Keyword||'');
+      const termNorm=term.toLowerCase().replace(/^#/,'');
+      if(!term||seen.has(termNorm)) continue;
+      if(['mp3','mp4'].includes(termNorm)) continue;
+      seen.add(termNorm);
+      const results=Number(row?.lastResultCount||row?.ResultCount||row?.resultCount||row?.results||0)||0;
+      const searches=Number(row?.successfulSearchCount||row?.SearchCount||row?.searchCount||row?.count||0)||0;
+      const el=document.createElement('div');el.className='trend-item';
+      el.onclick=()=>exploreTag(term);
+      el.innerHTML=`<div class="trend-cat">Trending · testnet3</div><div class="trend-kw">#${esc(term)}</div><div class="trend-n">${searches?searches+' searches':(results?results+' posts':'')}</div>`;
+      tc.appendChild(el);
+      if(++rendered>=8) break;
+    }
+    if(!rendered) throw new Error('no items rendered');
+    return;
+  }catch{/* fall through to local parse */}
+  // Local fallback: extract hashtags from already-loaded roots
+  const tagCount=new Map();
+  rootsFallback.forEach(r=>{
+    const tags=(r.message||'').match(/#([a-zA-Z0-9_-]{2,32})/g)||[];
+    tags.forEach(t=>{if(!['#mp3','#mp4'].includes(t.toLowerCase())) tagCount.set(t,(tagCount.get(t)||0)+1);});
+  });
+  if(!tagCount.size){tc.innerHTML='<div class="trend-n">No trending topics yet</div>';return;}
+  clr(tc);
+  [...tagCount.entries()].sort((a,b)=>b[1]-a[1]).slice(0,8).forEach(([tag,n])=>{
+    const el=document.createElement('div');el.className='trend-item';
+    el.onclick=()=>exploreTag(tag.slice(1));
+    el.innerHTML=`<div class="trend-cat">Trending · testnet3</div><div class="trend-kw">${esc(tag)}</div><div class="trend-n">${n} ${n===1?'post':'posts'}</div>`;
+    tc.appendChild(el);
+  });
+}
+
+async function renderSidebarList(){
+  const tc=$('trendingContent'),title=$('sidebarListTitle');
+  if(!tc||!title) return;
+  const token=++S.sidebarRenderToken;
+  if(S.sidebarMode==='trending'){title.textContent='Trending';await loadTrending((S.communityCache?.posts||[]).map(asRoot).filter(Boolean));return;}
+  const addrs=S.sidebarMode==='blocked'?[...S.blocked]:[...S.followed];
+  title.textContent=S.sidebarMode==='blocked'?'Blocked addresses':'Following / Friends';
+  clr(tc);
+  if(!addrs.length){
+    tc.innerHTML=`<div class="trend-n">${S.sidebarMode==='blocked'?'No blocked addresses':'No followed addresses yet'}</div>`;
+    const row=document.createElement('div');
+    row.style.cssText='padding-top:4px;';
+    row.innerHTML=`<button class="tiny-link-btn" onclick="setSidebarMode('${S.sidebarMode==='blocked'?'follows':'blocked'}')">${S.sidebarMode==='blocked'?'Back to friends':'Blocked'}</button>`;
+    tc.appendChild(row);
+    return;
+  }
+  const rows=await Promise.all(addrs.map(async addr=>{
+    const p=await fetchProfileByAddr(addr).catch(()=>null);
+    return{addr,p};
+  }));
+  if(token!==S.sidebarRenderToken) return;
+  rows.forEach(({addr,p})=>{
+    const el=document.createElement('div');
+    el.className='social-item';
+    el.innerHTML=`
+      <img ${profileImgAttrs(p?.image||'')} style="width:36px;height:36px;border-radius:50%;object-fit:cover;background:#222;" alt="">
+      <div class="social-item-main" onclick="openUserProfile('${esc(p?.urn||addr)}')" style="cursor:pointer;">
+        <div class="social-item-title">${esc(p?.displayName||shortAddr(addr))}</div>
+        <div class="social-item-sub">${esc(p?.urn?`@${p.urn}`:addr)}</div>
+      </div>
+      <button class="btn btn-out btn-sm" onclick="${S.sidebarMode==='blocked'?'toggleBlockAddr':'toggleFollowAddr'}('${esc(addr)}')">${S.sidebarMode==='blocked'?'Unblock':'Remove'}</button>`;
+    tc.appendChild(el);
+  });
+  if(S.sidebarMode==='follows'){
+    const row=document.createElement('div');
+    row.style.cssText='padding-top:4px;';
+    row.innerHTML='<button class="tiny-link-btn" onclick="setSidebarMode(\'blocked\')">Blocked</button>';
+    tc.appendChild(row);
+  }else{
+    const row=document.createElement('div');
+    row.style.cssText='padding-top:4px;';
+    row.innerHTML='<button class="tiny-link-btn" onclick="setSidebarMode(\'follows\')">Back to friends</button>';
+    tc.appendChild(row);
+  }
+}
+
+async function refreshCommunityCache({force=false}={}){
+  const addrs=[...S.followed].filter(a=>!isBlockedAddr(a));
+  const followedKey=[...addrs].sort().join('|');
+  const freshMs=5*60*1000;
+  if(!force&&Date.now()-Number(S.communityCache?.ts||0)<freshMs&&norm(S.communityCache?.followedKey)===followedKey) return S.communityCache.posts||[];
+  if(!addrs.length){S.communityCache={ts:Date.now(),posts:[],followedKey:''};saveSocialState();return[];}
+  const gathered=[];const batch=3;
+  for(let i=0;i<addrs.length;i+=batch){
+    const chunk=addrs.slice(i,i+batch);
+    const parts=await Promise.all(chunk.map(addr=>fetchMessages(addr,20).catch(()=>[])));
+    gathered.push(...parts.flat());
+    if(i+batch<addrs.length) await new Promise(r=>setTimeout(r,180));
+  }
+  const byTx=new Map();
+  blockFilterRows(gathered.map(asRoot).filter(Boolean)).forEach(r=>{if(r?.txId) byTx.set(r.txId,r);});
+  const posts=[...byTx.values()].sort((a,b)=>new Date(b.blockDate||0)-new Date(a.blockDate||0));
+  S.communityCache={ts:Date.now(),posts,followedKey};
+  saveSocialState();
+  return posts;
+}
+async function loadCommunityFeed(){
+  const feed=$('communityFeed');if(!feed) return;
+  const followed=[...S.followed].filter(a=>!isBlockedAddr(a));
+  if(!followed.length){
+    feed.innerHTML='<div class="feed-loading"><div class="spinner"></div>No friends followed yet — loading trending feed…</div>';
+    try{
+      const roots=blockFilterRows((await searchRoots('',24).catch(()=>[])).map(r=>normalizeRoot(r?.Root||r?.root||r)).filter(Boolean));
+      const profileCache=await buildSenderProfileCache(roots,{});
+      clr(feed);
+      if(!roots.length) feed.innerHTML='<div class="feed-empty">No community posts yet.</div>';
+      else roots.forEach(r=>feed.appendChild(buildTweetEl(r,{profileCache,profileNav:'main'})));
+      loadTrending(roots);
+    }catch{feed.innerHTML='<div class="feed-empty">No community posts yet.</div>';}
+    return;
+  }
+  const cached=blockFilterRows((S.communityCache?.posts||[]).map(asRoot).filter(Boolean)).sort((a,b)=>new Date(b.blockDate||0)-new Date(a.blockDate||0));
+  clr(feed);
+  if(cached.length){
+    const cachedProfileCache=await buildSenderProfileCache(cached,{});
+    cached.forEach(r=>feed.appendChild(buildTweetEl(r,{profileCache:cachedProfileCache,profileNav:'main'})));
+  }
+  else feed.innerHTML='<div class="feed-loading"><div class="spinner"></div>Building community feed…</div>';
+  refreshCommunityCache({force:true}).then(rows=>{
+    if(S.view!=='community') return;
+    const list=blockFilterRows((rows||[]).map(asRoot).filter(Boolean)).sort((a,b)=>new Date(b.blockDate||0)-new Date(a.blockDate||0));
+    buildSenderProfileCache(list,{}).then(profileCache=>{
+      if(S.view!=='community') return;
+      clr(feed);
+      if(!list.length) feed.innerHTML='<div class="feed-empty">No posts yet from followed addresses.</div>';
+      else list.forEach(r=>feed.appendChild(buildTweetEl(r,{profileCache,profileNav:'main'})));
+    });
+  }).catch(()=>{if(!cached.length) feed.innerHTML='<div class="feed-empty">Could not build community feed.</div>';});
+}
+
+window.toggleFollowAddr=function(addr){
+  if(!isAddr(addr)||addr===S.addr) return;
+  let added=false;
+  if(S.followed.has(addr)) S.followed.delete(addr);
+  else{S.followed.add(addr);added=true;}
+  saveSocialState();
+  renderSidebarList();
+  if(added){
+    refreshCommunityCache({force:true}).then(()=>{if(S.view==='community') loadCommunityFeed();}).catch(()=>{});
+    return;
+  }
+  if(S.view==='community') loadCommunityFeed();
+};
+window.toggleBlockAddr=function(addr){
+  if(!isAddr(addr)||addr===S.addr) return;
+  if(S.blocked.has(addr)) S.blocked.delete(addr);
+  else{S.blocked.add(addr);S.followed.delete(addr);}
+  saveSocialState();
+  renderSidebarList();
+  if(S.view==='community') loadCommunityFeed();
+  if(S.view==='home'){S.feedLoaded=false;loadHomeFeed();}
+  if(S.view==='myprofile') loadMyProfile();
+};
+
+/* ═══════════════════════════════════════════════════
+   EXPLORE / SEARCH
+═══════════════════════════════════════════════════ */
+async function runExploreSearch(query){
+  const res=$('exploreResults');if(!res) return;
+  const q=norm(query);
+  if(!q){res.innerHTML='<div class="feed-empty">Search for @handles, #keywords, addresses, or txids</div>';return;}
+  res.innerHTML='<div class="feed-loading"><div class="spinner"></div>Searching…</div>';
+  try{
+    if(q.startsWith('@')){
+      const urn=q.slice(1);
+      const profile=await fetchProfileByURN(urn);
+      if(!profile?.addr) throw new Error(`@${urn} not found`);
+      if(isBlockedAddr(profile.addr)) throw new Error('This profile is blocked');
+      const official=await isOfficial(profile);
+      const posts=blockFilterRows(await fetchMessages(profile.addr));
+      const postCache=await buildSenderProfileCache(posts,{[profile.addr]:profile});
+      clr(res);
+      res.appendChild(buildProfilePageEl(profile,official,posts,profile.addr===S.addr,postCache));
+      return;
+    }
+    if(isAddr(q)){
+      const profile=await fetchProfileByAddr(q);
+      const official=await isOfficial(profile||{});
+      if(isBlockedAddr(q)) throw new Error('This address is blocked');
+      const posts=blockFilterRows(await fetchMessages(q));
+      const seed=profile?.addr?{[profile.addr]:profile}:{};
+      const postCache=await buildSenderProfileCache(posts,seed);
+      clr(res);
+      res.appendChild(buildProfilePageEl(profile||{addr:q,displayName:shortAddr(q),image:'',bio:'',urn:'',urls:{},loc:{}},official,posts,q===S.addr,postCache));
+      return;
+    }
+    if(TXID_RE.test(q)){
+      const root=await fetchSingleRoot(q.toLowerCase());
+      if(!root) throw new Error('Transaction not found');
+      if(isBlockedAddr(root.fromAddr)) throw new Error('This post is from a blocked address');
+      clr(res);
+      // load thread
+      let filtered=[];
+      try{
+        const replies=await fetchMessages(await kwAddr(q.toLowerCase()),50);
+        filtered=blockFilterRows(replies.filter(r=>r.txId&&r.txId!==q.toLowerCase()));
+      }catch{}
+      const txCache=await buildSenderProfileCache([root,...filtered],{});
+      res.appendChild(buildTweetEl(root,{profileCache:txCache}));
+      if(filtered.length){
+        const hdr=document.createElement('div');hdr.innerHTML=`<div style="padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border);">${plural(filtered.length,'reply')}</div>`;
+        res.appendChild(hdr);
+        filtered.forEach(r=>res.appendChild(buildTweetEl(r,{profileCache:txCache})));
+      }
+      return;
+    }
+    if(q.startsWith('#')){
+      const tag=q.slice(1);
+      const addr=await kwAddr(tag);
+      const msgs=blockFilterRows(await fetchMessages(addr,50));
+      clr(res);
+      const hdr=document.createElement('div');
+      hdr.innerHTML=`<div style="padding:14px 16px;border-bottom:1px solid var(--border);"><span style="font-size:1.2rem;font-weight:700;">${esc(q)}</span><div style="color:var(--muted);font-size:.85rem;">${plural(msgs.length,'post')}</div></div>`;
+      res.appendChild(hdr);
+      const msgCache=await buildSenderProfileCache(msgs,{});
+      if(!msgs.length){res.innerHTML+='<div class="feed-empty">No posts for this tag yet.</div>';}
+      else msgs.forEach(r=>res.appendChild(buildTweetEl(r,{profileCache:msgCache})));
+      return;
+    }
+    // text search
+    const[prs,rts]=await Promise.all([searchProfiles(q,6),searchRoots(q,16)]);
+    clr(res);
+    if(!prs.length&&!rts.length){res.innerHTML='<div class="feed-empty">No results found.</div>';return;}
+    if(prs.length){
+      const hdr=document.createElement('div');hdr.innerHTML=`<div style="padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border);">People</div>`;
+      res.appendChild(hdr);
+      prs.forEach(raw=>{
+        const p=normalizeProfile(raw);if(!p||isBlockedAddr(p.addr)) return;
+        const el=document.createElement('div');
+        el.style.cssText='display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;';
+        el.onclick=()=>openUserProfile(p.urn||p.addr);
+        el.innerHTML=`<img ${profileImgAttrs(p.image)} style="width:48px;height:48px;border-radius:50%;object-fit:cover;background:#222;" alt="">
+          <div>
+            <div style="font-weight:700;">${esc(p.displayName)}</div>
+            ${p.urn?`<div style="color:var(--muted);font-size:.88rem;">@${esc(p.urn)}</div>`:''}
+            ${p.bio?`<div style="font-size:.88rem;">${esc(p.bio.slice(0,80))}</div>`:''}
+          </div>`;
+        res.appendChild(el);
+      });
+    }
+    if(rts.length){
+      const hdr=document.createElement('div');hdr.innerHTML=`<div style="padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border);">Posts</div>`;
+      res.appendChild(hdr);
+      const roots=blockFilterRows(rts.map(r=>normalizeRoot(r?.Root||r?.root||r)).filter(Boolean));
+      const rootCache=await buildSenderProfileCache(roots,{});
+      roots.forEach(r=>res.appendChild(buildTweetEl(r,{profileCache:rootCache})));
+    }
+  }catch(e){res.innerHTML=`<div class="feed-err">Search error: ${esc(e.message)}</div>`;}
+}
+window.exploreTag=function(tag){
+  switchView('explore');
+  const si=$('exploreSearchInput');if(si){si.value='#'+tag;}
+  runExploreSearch('#'+tag);
+};
+window.openProfileInMainThread=function(urnOrAddr){
+  const target=norm(urnOrAddr);
+  const query=isAddr(target)?target:`@${target.replace(/^@/,'')}`;
+  switchView('explore');
+  const si=$('exploreSearchInput');
+  if(si) si.value=query;
+  runExploreSearch(query);
+};
+window.openProfileTarget=function(urnOrAddr,mode='modal'){
+  if(mode==='main') return openProfileInMainThread(urnOrAddr);
+  return openUserProfile(urnOrAddr);
+};
+window.openUserProfile=async function(urnOrAddr){
+  const nm=$('profModalName'),pc=$('profModalPostCount'),body=$('profModalBody');
+  if(!nm||!pc||!body) return;
+  nm.textContent='Loading…';pc.textContent='';clr(body);
+  openModal('modalProfile');
+  try{
+    let profile;
+    if(isAddr(urnOrAddr)) profile=await fetchProfileByAddr(urnOrAddr);
+    else profile=await fetchProfileByURN(urnOrAddr);
+    if(!profile?.addr) throw new Error('Profile not found');
+    if(isBlockedAddr(profile.addr)){
+      nm.textContent=profile.displayName||shortAddr(profile.addr);
+      pc.textContent='Blocked';
+      body.innerHTML=`<div class="feed-empty">This address is blocked.<div style="margin-top:12px;"><button class="btn btn-out btn-sm" onclick="toggleBlockAddr('${esc(profile.addr)}')">Unblock</button></div></div>`;
+      return;
+    }
+    const official=await isOfficial(profile);
+    const posts=blockFilterRows(await fetchMessages(profile.addr,25));
+    const seed={};
+    if(profile?.addr){
+      seed[profile.addr]=profile;
+      seed[profile.addr.toLowerCase()]=profile;
+    }
+    const postCache=await buildSenderProfileCache(posts,seed);
+    nm.textContent=profile.displayName||shortAddr(profile.addr);
+    pc.textContent=plural(posts.length,'post');
+    body.replaceChildren(buildProfilePageEl(profile,official,posts,profile.addr===S.addr,postCache));
+  }catch(e){body.innerHTML=`<div class="feed-err">${esc(e.message)}</div>`;}
+};
+async function openPostDetail(txid){
+  const body=$('postDetailBody');if(!body) return;
+  body.innerHTML='<div class="feed-loading"><div class="spinner"></div>Loading…</div>';
+  openModal('modalPost');
+  try{
+    const root=await fetchSingleRoot(txid);
+    if(!root) throw new Error('Post not found');
+    if(isBlockedAddr(root.fromAddr)) throw new Error('This post is from a blocked address');
+    clr(body);
+    let threadRows=[];
+    try{
+      const replies=await fetchMessages(await kwAddr(txid),50);
+      threadRows=blockFilterRows(replies.filter(r=>r.txId&&r.txId!==txid.toLowerCase()));
+    }catch{}
+    const metrics={comments:0,retweets:0};
+    threadRows.forEach(r=>{const a=classifyThreadActions(r.message);if(a.comment)metrics.comments+=1;if(a.retweet)metrics.retweets+=1;});
+    const profileCache={};
+    await Promise.allSettled([...new Set([root.fromAddr,...threadRows.map(r=>r.fromAddr)].filter(Boolean))].slice(0,24).map(async a=>{
+      const p=await fetchProfileByAddr(a);if(p?.addr) profileCache[p.addr]=p;
+    }));
+    body.appendChild(buildTweetEl({...root,_metrics:metrics},{profileCache}));
+    // thread
+    if(threadRows.length){
+      const hdr=document.createElement('div');
+      hdr.innerHTML=`<div style="padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:12px;"><span>${plural(threadRows.length,'reply')}</span><span style="color:var(--muted);font-size:.82rem;">💬 ${metrics.comments} · 🔁 ${metrics.retweets}</span></div>`;
+      body.appendChild(hdr);
+      threadRows.forEach(r=>body.appendChild(buildTweetEl(r,{profileCache})));
+    }else{
+      const empty=document.createElement('div');
+      empty.innerHTML='<div class="feed-empty">No replies yet.</div>';
+      body.appendChild(empty);
+    }
+  }catch(e){body.innerHTML=`<div class="feed-err">${esc(e.message)}</div>`;}
+}
+window.openPostDetail=openPostDetail;
+
+/* ═══════════════════════════════════════════════════
+   MODAL SYSTEM
+═══════════════════════════════════════════════════ */
+function openModal(id){
+  const el=$(id);if(!el) return;
+  el.classList.remove('hidden');
+  if(id==='modalWallet'){renderWalletUI($('walletModalBody'));}
+  if(id==='modalProfileEdit'&&!S.addr){
+    const st=$('peStatus');
+    showStatus(st,'Unlock wallet to broadcast profile claim. You can still fill and check handle now.','warn');
+  }
+}
+function closeModal(id){const el=$(id);if(el)el.classList.add('hidden');}
+window.openModal=openModal;
+window.closeModal=closeModal;
+
+/* ═══════════════════════════════════════════════════
+   EVENT LISTENERS
+═══════════════════════════════════════════════════ */
+document.querySelectorAll('.nav-item').forEach(btn=>{
+  btn.addEventListener('click',()=>switchView(btn.dataset.view));
+});
+$('btnBrand')?.addEventListener('click',()=>switchView('home'));
+$('btnNewPost')?.addEventListener('click',()=>{
+  if(!S.addr){openModal('modalWallet');return;}
+  openModal('modalCompose');
+});
+$('fab')?.addEventListener('click',()=>{
+  if(!S.addr){openModal('modalWallet');return;}
+  openModal('modalCompose');
+});
+$('walletMini')?.addEventListener('click',()=>openModal('modalWallet'));
+
+// Close modal on overlay click
+document.querySelectorAll('.modal-overlay').forEach(overlay=>{
+  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.classList.add('hidden');});
+});
+
+// Explore search
+let exploreTimer;
+$('exploreSearchInput')?.addEventListener('input',e=>{
+  clearTimeout(exploreTimer);
+  exploreTimer=setTimeout(()=>runExploreSearch(e.target.value),420);
+});
+$('exploreSearchInput')?.addEventListener('keydown',e=>{if(e.key==='Enter'){clearTimeout(exploreTimer);runExploreSearch(e.target.value);}});
+
+// Right sidebar search → switch to explore
+$('rSearchInput')?.addEventListener('keydown',e=>{
+  if(e.key==='Enter'){
+    switchView('explore');
+    const si=$('exploreSearchInput');if(si){si.value=e.target.value;e.target.value='';}
+    runExploreSearch(e.target.value||si?.value||'');
+  }
+});
+
+// Wallet nav shortcut
+$('navWallet')?.addEventListener('click',()=>{switchView('wallet');});
+
+// ESC closes topmost open modal
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){
+    const open=[...$('modalPost')?[$('modalPost')]:[],
+      ...$('modalProfile')?[$('modalProfile')]:[],
+      ...$('modalProfileEdit')?[$('modalProfileEdit')]:[],
+      ...$('modalCompose')?[$('modalCompose')]:[],
+      ...$('modalWallet')?[$('modalWallet')]:[]]
+      .filter(m=>!m.classList.contains('hidden'));
+    if(open.length) open[open.length-1].classList.add('hidden');
+  }
+});
+
+// expose needed functions to onclick attrs
+window.generateKey=generateKey;
+window.importWallet=importWallet;
+window.unlockWallet=unlockWallet;
+window.exportWif=exportWif;
+window.lockWallet=lockWallet;
+window.forgetWallet=forgetWallet;
+window.addKvRow=addKvRow;
+window.checkProfileHandle=checkProfileHandle;
+window.validateProfileImage=validateProfileImage;
+window.onProfileImageInput=function(){
+  const raw=norm($('peImg')?.value||'');
+  if(!raw){
+    S.normalizedImg='';
+    const prev=$('peImgPreview');
+    if(prev) prev.classList.add('hidden');
+    setChip($('peImgBadge'),'Unchecked');
+    return;
+  }
+  setChip($('peImgBadge'),'Unchecked');
+};
+window.toggleProfileDetails=function(){
+  const box=$('peMoreDetails'),btn=$('peDetailsToggle');
+  if(!box||!btn) return;
+  const willShow=box.classList.contains('hidden');
+  box.classList.toggle('hidden');
+  btn.textContent=willShow?'Hide details':'Show more details';
+};
+window.estimateProfileTx=estimateProfileTx;
+window.broadcastProfileTx=broadcastProfileTx;
+window.addComposedAttachment=addComposedAttachment;
+window.toggleExtraFields=toggleExtraFields;
+window.submitCompose=submitCompose;
+window.submitInlinePost=submitInlinePost;
+window.autoResize=autoResize;
+
+/* ═══════════════════════════════════════════════════
+   INIT
+═══════════════════════════════════════════════════ */
+(async()=>{
+  loadSocialState();
+  // check for stored wallet
+  const stored=localStorage.getItem(WALLET_KEY);
+  if(stored){
+    // don't auto-unlock but show a prompt in wallet view
+  }
+  // render wallet view
+  renderWalletUI($('walletViewBody'));
+  // render wallet modal body (pre-render)
+  renderWalletUI($('walletModalBody'));
+  // start home feed
+  loadHomeFeed();
+  setSidebarMode('trending');
+  // populate profile editor placeholders
+  populateProfileEditor(null);
+})();
+
+})(); // end IIFE
+</script>
+</body>
+</html>
