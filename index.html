@@ -1703,6 +1703,8 @@
         const profile = await fetchProfileByURN(mention);
         if (profile?.address) recipients.add(profile.address);
       }
+      const commentTxid = normalize(dom.msgCommentTxid.value).toLowerCase();
+      if (commentTxid) recipients.add(await resolveKeywordAddress(commentTxid));
       return [...recipients];
     }
 
