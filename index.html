@@ -1532,8 +1532,10 @@ async function refreshBalance(){
     const total=bals.reduce((acc,b)=>({confirmed:acc.confirmed+(b.confirmed||0),unconfirmed:acc.unconfirmed+(b.unconfirmed||0)}),{confirmed:0,unconfirmed:0});
     // Build per-address detail
     const addrLines=kr.all.map((sg,i)=>{const b=bals[i];return b.confirmed||b.unconfirmed?`<div style="font-size:.75rem;color:var(--muted);margin-top:2px;">${esc(sg.label)}: ${(b.confirmed/1e8).toFixed(8)} confirmed</div>`:''}).join('');
-    const bw=document.querySelector('#walletBalances');
-    if(bw) bw.innerHTML=`<span class="balance-chip balance-confirmed">✓ ${(total.confirmed/1e8).toFixed(8)} tBTC confirmed</span><span class="balance-chip balance-unconf">⏳ ${(total.unconfirmed/1e8).toFixed(8)} tBTC unconfirmed</span>${addrLines}`;
+    const bws=document.querySelectorAll('.wallet-balances, #walletBalances');
+    bws.forEach(bw => {
+      bw.innerHTML=`<span class="balance-chip balance-confirmed">✓ ${(total.confirmed/1e8).toFixed(8)} tBTC confirmed</span><span class="balance-chip balance-unconf">⏳ ${(total.unconfirmed/1e8).toFixed(8)} tBTC unconfirmed</span>${addrLines}`;
+    });
   }catch{}
 }
 function activeWalletContainer(preferEl=null){
