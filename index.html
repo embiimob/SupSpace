@@ -1,0 +1,2044 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SupSpace.io — testnet3 P2FK social</title>
+  <meta name="description" content="SupSpace.io is a single-file testnet3 P2FK social app for profiles, posts, comments, mentions, keywords, and IPFS attachments.">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #071019;
+      --panel: #101c2b;
+      --panel-2: #142235;
+      --line: rgba(136, 179, 255, 0.2);
+      --text: #eef6ff;
+      --muted: #93a9c6;
+      --accent: #60a5fa;
+      --accent-2: #22d3ee;
+      --danger: #f87171;
+      --good: #34d399;
+      --warn: #fbbf24;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top, #10233f, var(--bg) 45%);
+      color: var(--text);
+    }
+    a { color: var(--accent-2); }
+    .app {
+      max-width: 1260px;
+      margin: 0 auto;
+      padding: 1.1rem;
+      display: grid;
+      gap: 1rem;
+    }
+    .hero {
+      background: linear-gradient(135deg, rgba(96,165,250,.16), rgba(34,211,238,.1));
+      border: 1px solid var(--line);
+      border-radius: 1rem;
+      padding: 1rem 1.1rem;
+    }
+    .hero h1 { margin: 0 0 .35rem; font-size: clamp(1.5rem, 3vw, 2.5rem); }
+    .hero p { margin: .2rem 0; color: var(--muted); }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1rem;
+      align-items: start;
+    }
+    .panel {
+      background: rgba(10, 18, 30, 0.92);
+      border: 1px solid var(--line);
+      border-radius: 1rem;
+      padding: 1rem;
+      box-shadow: 0 8px 24px rgba(0,0,0,.18);
+    }
+    .panel h2, .panel h3 { margin: 0 0 .8rem; }
+    .stack { display: grid; gap: .75rem; }
+    .row { display: flex; gap: .6rem; flex-wrap: wrap; }
+    .row > * { flex: 1 1 180px; }
+    label { display: grid; gap: .35rem; font-size: .92rem; color: var(--muted); }
+    input, textarea, select, button {
+      font: inherit;
+      border-radius: .7rem;
+      border: 1px solid rgba(148,163,184,.24);
+      background: var(--panel);
+      color: var(--text);
+      padding: .72rem .82rem;
+    }
+    textarea { min-height: 7.8rem; resize: vertical; }
+    button {
+      cursor: pointer;
+      background: linear-gradient(180deg, rgba(96,165,250,.22), rgba(37,99,235,.22));
+      transition: transform .16s ease, border-color .16s ease, background .16s ease;
+    }
+    button:hover { transform: translateY(-1px); border-color: rgba(96,165,250,.55); }
+    button.secondary { background: rgba(148,163,184,.12); }
+    button.good { background: linear-gradient(180deg, rgba(52,211,153,.22), rgba(5,150,105,.22)); }
+    button.warn { background: linear-gradient(180deg, rgba(251,191,36,.16), rgba(217,119,6,.18)); }
+    button.danger { background: linear-gradient(180deg, rgba(248,113,113,.18), rgba(220,38,38,.18)); }
+    button:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+    .status {
+      min-height: 1.4rem;
+      color: var(--muted);
+      font-size: .92rem;
+      white-space: pre-wrap;
+    }
+    .status.good { color: var(--good); }
+    .status.warn { color: var(--warn); }
+    .status.danger { color: var(--danger); }
+    .mini {
+      font-size: .8rem;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .35rem;
+      padding: .22rem .55rem;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(15, 23, 42, .76);
+      font-size: .78rem;
+      color: var(--muted);
+    }
+    .badge.good { color: var(--good); border-color: rgba(52,211,153,.4); }
+    .badge.warn { color: var(--warn); border-color: rgba(251,191,36,.4); }
+    .badge.danger { color: var(--danger); border-color: rgba(248,113,113,.4); }
+    .split {
+      display: grid;
+      gap: 1rem;
+      grid-template-columns: 1.1fr .9fr;
+    }
+    @media (max-width: 920px) { .split { grid-template-columns: 1fr; } }
+    .kv-list { display: grid; gap: .55rem; }
+    .kv-row {
+      display: grid;
+      gap: .5rem;
+      grid-template-columns: 1fr 1.3fr auto;
+      align-items: end;
+    }
+    .kv-row button { min-width: 78px; }
+    .wallet-meta, .profile-summary-meta {
+      display: flex;
+      gap: .5rem;
+      flex-wrap: wrap;
+      font-size: .84rem;
+      color: var(--muted);
+    }
+    .hidden { display: none !important; }
+    .address {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      word-break: break-all;
+    }
+    .card {
+      border: 1px solid var(--line);
+      border-radius: .9rem;
+      background: rgba(20, 34, 53, .72);
+      padding: .9rem;
+      display: grid;
+      gap: .6rem;
+    }
+    .profile-head {
+      display: grid;
+      grid-template-columns: 72px 1fr;
+      gap: .8rem;
+      align-items: start;
+    }
+    .profile-head img {
+      width: 72px;
+      height: 72px;
+      border-radius: 1rem;
+      object-fit: cover;
+      background: #0f172a;
+      border: 1px solid var(--line);
+    }
+    .link-list, .attachment-list, .message-thread { display: grid; gap: .5rem; }
+    .pill-list { display: flex; gap: .45rem; flex-wrap: wrap; }
+    .pill {
+      border-radius: 999px;
+      padding: .24rem .55rem;
+      border: 1px solid var(--line);
+      color: var(--muted);
+      font-size: .78rem;
+    }
+    .message-card {
+      border: 1px solid var(--line);
+      border-radius: .95rem;
+      background: rgba(15, 23, 42, .78);
+      padding: .9rem;
+      display: grid;
+      gap: .62rem;
+    }
+    .message-meta {
+      display: flex;
+      gap: .55rem;
+      flex-wrap: wrap;
+      font-size: .8rem;
+      color: var(--muted);
+    }
+    .message-body {
+      white-space: pre-wrap;
+      line-height: 1.55;
+      word-break: break-word;
+    }
+    .message-body .tag { color: var(--accent-2); }
+    .message-body .mention { color: var(--accent); }
+    .message-body .comment-ref { color: var(--warn); }
+    .message-attachments img, .message-attachments video {
+      max-width: 100%;
+      border-radius: .8rem;
+      border: 1px solid var(--line);
+      background: #020617;
+    }
+    .message-attachments audio { width: 100%; }
+    .thread-item {
+      border-left: 2px solid rgba(96,165,250,.4);
+      padding-left: .75rem;
+      margin-left: .35rem;
+    }
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: rgba(2, 6, 23, .75);
+      padding: .85rem;
+      border-radius: .8rem;
+      border: 1px solid rgba(96,165,250,.16);
+      color: #dbeafe;
+      font-size: .8rem;
+    }
+    .footer-note { text-align: center; color: var(--muted); font-size: .82rem; padding-bottom: 1.2rem; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <section class="hero">
+      <h1>SupSpace.io ✦ single-file P2FK social</h1>
+      <p>Mint and edit <strong>Sup!?</strong> profiles, broadcast signed testnet3 P2FK messages, and browse handles, threads, keywords, comments, and IPFS attachments from one <code>index.html</code>.</p>
+      <div class="wallet-meta">
+        <span class="badge">Bitcoin testnet3 legacy wallet</span>
+        <span class="badge">Mempool broadcast</span>
+        <span class="badge">p2fk.io read/search</span>
+        <span class="badge">IPFS normalization</span>
+      </div>
+    </section>
+
+    <section class="grid">
+      <section class="panel stack">
+        <div>
+          <h2>Wallet</h2>
+          <p class="mini">Built-in browser wallet for <strong>testnet3 legacy (m/n)</strong> addresses only. Imported keys are AES-256-GCM encrypted in localStorage and never sent to any server.</p>
+        </div>
+        <label>Import WIF private key
+          <input id="walletWif" type="password" autocomplete="off" placeholder="c... or 9... testnet3 WIF">
+        </label>
+        <label>Encryption password
+          <input id="walletPassword" type="password" autocomplete="new-password" placeholder="Minimum 12 characters">
+        </label>
+        <div class="row">
+          <button id="walletGenerate">Generate address</button>
+          <button id="walletImport" class="good">Import + unlock</button>
+        </div>
+        <label>Unlock saved key
+          <input id="walletUnlockPassword" type="password" autocomplete="current-password" placeholder="Password to unlock stored key">
+        </label>
+        <div class="row">
+          <button id="walletUnlock">Unlock saved wallet</button>
+          <button id="walletExport" class="secondary">Copy WIF</button>
+          <button id="walletLock" class="warn">Lock</button>
+          <button id="walletForget" class="danger">Forget stored key</button>
+        </div>
+        <div id="walletState" class="status"></div>
+        <div id="walletInfo" class="card hidden"></div>
+      </section>
+
+      <section class="panel stack">
+        <div>
+          <h2>Search SupSpace</h2>
+          <p class="mini">Search <code>@handle</code>, testnet3 address, <code>#keyword</code>, 64-char txid, or any text. The reader uses public <code>p2fk.io</code> APIs and flags unofficial handles to reduce identity theft.</p>
+        </div>
+        <div class="row">
+          <input id="searchInput" type="text" placeholder="@handle · mw... address · #keyword · txid · text">
+          <button id="searchButton" class="good">Search</button>
+        </div>
+        <div id="searchState" class="status"></div>
+        <div id="searchResults" class="stack"></div>
+      </section>
+    </section>
+
+    <section class="split">
+      <section class="panel stack">
+        <div>
+          <h2>Claim / edit profile</h2>
+          <p class="mini">Profile editing only appears when the built-in wallet is unlocked. The editor is tied to the unlocked signature address. Handle availability must be checked before a new claim can be broadcast.</p>
+        </div>
+        <div id="profileLockedHint" class="status warn">Unlock your built-in wallet to claim or edit the profile bound to its signature address.</div>
+        <div id="profileEditor" class="stack hidden">
+          <div id="profileEditorIntro" class="card"></div>
+          <div class="row">
+            <label>Handle / URN
+              <input id="proUrn" type="text" placeholder="embii4u">
+            </label>
+            <label>Handle availability
+              <div class="row">
+                <button id="checkHandle" type="button">Check handle</button>
+                <span id="handleBadge" class="badge">Unchecked</span>
+              </div>
+            </label>
+          </div>
+          <div class="row">
+            <label>First name<input id="proFnm" type="text" placeholder="First name"></label>
+            <label>Middle name<input id="proMnm" type="text" placeholder="Middle name"></label>
+            <label>Last name<input id="proLnm" type="text" placeholder="Last name"></label>
+            <label>Suffix<input id="proSfx" type="text" placeholder="Suffix"></label>
+          </div>
+          <label>Bio
+            <textarea id="proBio" placeholder="Write a bio for your SupSpace profile"></textarea>
+          </label>
+          <div class="row">
+            <label>Profile image / media URL
+              <input id="proImg" type="text" placeholder="IPFS:cid/image.png · txid/file.png · https://...">
+            </label>
+            <label>Image status
+              <div class="row">
+                <button id="checkImage" type="button">Validate image</button>
+                <span id="imageBadge" class="badge">Unchecked</span>
+              </div>
+            </label>
+          </div>
+          <div class="row">
+            <label class="badge"><input id="proEnableSec" type="checkbox" style="margin-right:.4rem"> Enable private messaging keys (pkx/pky)</label>
+            <button id="proLoadOwn" type="button" class="secondary">Reload my current profile</button>
+          </div>
+          <div class="mini">Turning private messaging off during an edit broadcasts blank <code>pkx</code>/<code>pky</code> elements so SEC can be disabled later.</div>
+
+          <div>
+            <div class="row" style="margin-bottom:.5rem;align-items:center;">
+              <h3 style="margin:0;">Links</h3>
+              <button id="addUrlPair" type="button" class="secondary">Add link</button>
+            </div>
+            <div id="urlPairs" class="kv-list"></div>
+          </div>
+
+          <div>
+            <div class="row" style="margin-bottom:.5rem;align-items:center;">
+              <h3 style="margin:0;">Location fields</h3>
+              <button id="addLocPair" type="button" class="secondary">Add location</button>
+            </div>
+            <div id="locPairs" class="kv-list"></div>
+          </div>
+
+          <div class="row">
+            <button id="estimateProfile" type="button">Estimate PRO outputs</button>
+            <button id="broadcastProfile" type="button" class="good">Broadcast PRO transaction</button>
+          </div>
+          <div id="profileState" class="status"></div>
+          <pre id="profilePreview">Profile preview will appear here.</pre>
+        </div>
+      </section>
+
+      <section class="panel stack">
+        <div>
+          <h2>Compose message</h2>
+          <p class="mini">Broadcast standard signed P2FK social posts with IPFS or on-chain attachments, hashtags, mentions, optional comment references, and lightweight poll text.</p>
+        </div>
+        <label>Message
+          <textarea id="msgBody" placeholder="Write a post with #keywords and @handles"></textarea>
+        </label>
+        <div class="row">
+          <label>Comment / thread txid
+            <input id="msgCommentTxid" type="text" placeholder="Optional 64-char txid to comment on">
+          </label>
+          <label>Direct / extra recipients
+            <input id="msgRecipients" type="text" placeholder="Comma-separated testnet3 addresses or @handles">
+          </label>
+        </div>
+        <div class="row">
+          <label>Inline poll question
+            <input id="pollQuestion" type="text" placeholder="Optional poll question">
+          </label>
+          <label>Poll options
+            <input id="pollOptions" type="text" placeholder="Option A | Option B | Option C">
+          </label>
+        </div>
+        <div class="row">
+          <label>Attachment or profile media reference
+            <input id="msgAttachmentInput" type="text" placeholder="IPFS:cid/file.ext · txid/file.ext · https://...">
+          </label>
+          <button id="addAttachment" type="button">Validate + add attachment</button>
+        </div>
+        <div id="attachmentState" class="status"></div>
+        <div id="attachmentList" class="attachment-list"></div>
+        <div class="row">
+          <button id="estimateMessage" type="button">Estimate message outputs</button>
+          <button id="broadcastMessage" type="button" class="good">Broadcast message</button>
+        </div>
+        <div id="messageState" class="status"></div>
+        <pre id="messagePreview">Message preview will appear here.</pre>
+      </section>
+    </section>
+
+    <section class="panel stack">
+      <div>
+        <h2>Live profile / thread view</h2>
+        <p class="mini">When a profile or txid search succeeds, SupSpace renders the profile, official/unofficial status, recent messages, and thread replies/comments.</p>
+      </div>
+      <div id="detailView" class="stack"></div>
+    </section>
+
+    <div class="footer-note">SupSpace.io runs locally from one HTML file and reads from public P2FK APIs when network access is available.</div>
+  </div>
+
+  <script>
+  (() => {
+    const API_BASE = 'https://p2fk.io';
+    const MEMPOOL_TESTNET_API = 'https://mempool.space/testnet/api';
+    const P2FK_DEFAULT_VERSION_BYTE = 0x6f;
+    const P2FK_CHUNK_SIZE_BYTES = 20;
+    const P2FK_PADDING_CHAR = '#';
+    const P2FK_SIGNATURE_VERSION_MARKER = '88';
+    const BTC_DUST_LIMIT_SAT = 546;
+    const BTC_DEFAULT_FEE_RATE = 10;
+    const BTC_MIN_FEE_RATE = 2;
+    const INTERNAL_WALLET_STORAGE_KEY = 'supspace_internal_wallet_v1';
+    const INTERNAL_WALLET_MIN_PASSWORD_LENGTH = 12;
+    const INTERNAL_WALLET_PBKDF2_ITERATIONS = 600000;
+    const INTERNAL_CHANGE_ADDRESS_COUNT = 2;
+    const INTERNAL_CHANGE_DERIVATION_PREFIX = 'supspace:testnet3:change:';
+    const COMPOSER_AMOUNT_PER_RECIPIENT = BTC_DUST_LIMIT_SAT / 1e8;
+    const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    const SIGNING_DELIMITERS = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
+    const COMPOSER_CID_REGEX = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[1-9A-HJ-NP-Za-km-z]{20,})$/i;
+    const IPFS_GATEWAY_URLS = [
+      'https://ipfs.io/ipfs/',
+      'https://cloudflare-ipfs.com/ipfs/',
+      'https://dweb.link/ipfs/',
+      'https://gateway.pinata.cloud/ipfs/'
+    ];
+    const IPFS_PATH_URL_REGEX = /^\/?ipfs\/([a-zA-Z0-9]+)(?:\/(.*))?$/i;
+    const UNSAFE_FILENAME_CHARS_REGEX = /[^a-zA-Z0-9._-]/g;
+    const IMAGE_EXT_REGEX = /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i;
+    const AUDIO_EXT_REGEX = /\.(mp3|wav|ogg|flac|webm|aac|m4a|opus)$/i;
+    const VIDEO_EXT_REGEX = /\.(mp4|mov|avi|webm|ogv|m3u8)$/i;
+    const TXID_ONLY_REGEX = /^[0-9a-fA-F]{64}$/;
+    const LEGACY_TESTNET_ADDRESS_REGEX = /^[mn][1-9A-HJ-NP-Za-km-z]{25,34}$/;
+    const TAG_REGEX = /#([a-zA-Z0-9_-]{2,32})/g;
+    const MENTION_REGEX = /@([A-Za-z0-9/]{1,64})/g;
+    const fallbackAvatar = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect width="96" height="96" rx="18" fill="#0f172a"/><circle cx="48" cy="34" r="18" fill="#334155"/><path d="M18 84c6-17 18-25 30-25s24 8 30 25" fill="#334155"/></svg>');
+
+    const dom = {
+      walletWif: document.getElementById('walletWif'),
+      walletPassword: document.getElementById('walletPassword'),
+      walletUnlockPassword: document.getElementById('walletUnlockPassword'),
+      walletGenerate: document.getElementById('walletGenerate'),
+      walletImport: document.getElementById('walletImport'),
+      walletUnlock: document.getElementById('walletUnlock'),
+      walletExport: document.getElementById('walletExport'),
+      walletLock: document.getElementById('walletLock'),
+      walletForget: document.getElementById('walletForget'),
+      walletState: document.getElementById('walletState'),
+      walletInfo: document.getElementById('walletInfo'),
+      searchInput: document.getElementById('searchInput'),
+      searchButton: document.getElementById('searchButton'),
+      searchState: document.getElementById('searchState'),
+      searchResults: document.getElementById('searchResults'),
+      detailView: document.getElementById('detailView'),
+      profileLockedHint: document.getElementById('profileLockedHint'),
+      profileEditor: document.getElementById('profileEditor'),
+      profileEditorIntro: document.getElementById('profileEditorIntro'),
+      proUrn: document.getElementById('proUrn'),
+      proFnm: document.getElementById('proFnm'),
+      proMnm: document.getElementById('proMnm'),
+      proLnm: document.getElementById('proLnm'),
+      proSfx: document.getElementById('proSfx'),
+      proBio: document.getElementById('proBio'),
+      proImg: document.getElementById('proImg'),
+      proEnableSec: document.getElementById('proEnableSec'),
+      checkHandle: document.getElementById('checkHandle'),
+      handleBadge: document.getElementById('handleBadge'),
+      checkImage: document.getElementById('checkImage'),
+      imageBadge: document.getElementById('imageBadge'),
+      addUrlPair: document.getElementById('addUrlPair'),
+      addLocPair: document.getElementById('addLocPair'),
+      urlPairs: document.getElementById('urlPairs'),
+      locPairs: document.getElementById('locPairs'),
+      estimateProfile: document.getElementById('estimateProfile'),
+      broadcastProfile: document.getElementById('broadcastProfile'),
+      profileState: document.getElementById('profileState'),
+      profilePreview: document.getElementById('profilePreview'),
+      proLoadOwn: document.getElementById('proLoadOwn'),
+      msgBody: document.getElementById('msgBody'),
+      msgCommentTxid: document.getElementById('msgCommentTxid'),
+      msgRecipients: document.getElementById('msgRecipients'),
+      pollQuestion: document.getElementById('pollQuestion'),
+      pollOptions: document.getElementById('pollOptions'),
+      msgAttachmentInput: document.getElementById('msgAttachmentInput'),
+      addAttachment: document.getElementById('addAttachment'),
+      attachmentState: document.getElementById('attachmentState'),
+      attachmentList: document.getElementById('attachmentList'),
+      estimateMessage: document.getElementById('estimateMessage'),
+      broadcastMessage: document.getElementById('broadcastMessage'),
+      messageState: document.getElementById('messageState'),
+      messagePreview: document.getElementById('messagePreview')
+    };
+
+    const state = {
+      walletSession: { address: '', providerId: 'internal' },
+      internalPrivKeyBytes: null,
+      currentProfile: null,
+      currentProfileOfficial: true,
+      currentSearchPayload: null,
+      composerAttachments: [],
+      normalizedProfileImage: '',
+      handleCheck: null,
+      profileCaches: new Map(),
+      keywordCache: new Map(),
+      threadDataCache: new Map()
+    };
+
+    const normalize = (value) => typeof value === 'string' ? value.trim() : '';
+    const decodeHtmlEntities = (text) => normalize(text)
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#0?39;|&apos;/gi, "'");
+    const escapeHtml = (text) => String(text ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+    const cleanDisplayText = (value, max = 220) => normalize(String(value ?? '')).slice(0, max);
+    const utf8ByteLength = (value) => new TextEncoder().encode(String(value ?? '')).length;
+    const setStatus = (el, message, kind = '') => {
+      el.textContent = message || '';
+      el.className = `status${kind ? ` ${kind}` : ''}`;
+    };
+    const shortAddress = (value) => {
+      const text = normalize(value);
+      return text.length > 18 ? `${text.slice(0, 10)}…${text.slice(-6)}` : text;
+    };
+    const formatDate = (value) => {
+      if (!value) return '';
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? cleanDisplayText(value, 42) : d.toLocaleString();
+    };
+    const isAddress = (value) => LEGACY_TESTNET_ADDRESS_REGEX.test(normalize(value));
+    const plural = (count, label) => `${count} ${label}${count === 1 ? '' : 's'}`;
+
+    function bytesToBigInt(bytes) {
+      let v = 0n;
+      for (const b of bytes) v = (v << 8n) | BigInt(b);
+      return v;
+    }
+
+    function bigIntToBytes32(n) {
+      const out = new Uint8Array(32);
+      for (let i = 31; i >= 0; i -= 1) { out[i] = Number(n & 0xffn); n >>= 8n; }
+      return out;
+    }
+
+    function bytesToHex(bytes) {
+      return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+    }
+
+    function hexToBytes(hex) {
+      const out = new Uint8Array(hex.length / 2);
+      for (let i = 0; i < out.length; i += 1) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+      return out;
+    }
+
+    async function sha256Bytes(bytes) {
+      const digest = await crypto.subtle.digest('SHA-256', bytes);
+      return new Uint8Array(digest);
+    }
+
+    async function sha256HexFromText(text) {
+      return bytesToHex(await sha256Bytes(new TextEncoder().encode(text)));
+    }
+
+    function encodeBitcoinVarInt(value) {
+      if (value < 0xfd) return new Uint8Array([value]);
+      if (value <= 0xffff) return new Uint8Array([0xfd, value & 0xff, (value >> 8) & 0xff]);
+      if (value <= 0xffffffff) {
+        return new Uint8Array([0xfe, value & 0xff, (value >> 8) & 0xff, (value >> 16) & 0xff, (value >>> 24) & 0xff]);
+      }
+      throw new Error('Message too large to sign');
+    }
+
+    async function hashBitcoinSignedMessage(messageText) {
+      const magic = new TextEncoder().encode('Bitcoin Signed Message:\n');
+      const msg = new TextEncoder().encode(messageText);
+      const msgLen = encodeBitcoinVarInt(msg.length);
+      const envelope = new Uint8Array(1 + magic.length + msgLen.length + msg.length);
+      envelope[0] = magic.length;
+      envelope.set(magic, 1);
+      envelope.set(msgLen, 1 + magic.length);
+      envelope.set(msg, 1 + magic.length + msgLen.length);
+      return sha256Bytes(await sha256Bytes(envelope));
+    }
+
+    function encodeBase58(bytes) {
+      if (!(bytes instanceof Uint8Array)) bytes = new Uint8Array(bytes);
+      let zeros = 0;
+      while (zeros < bytes.length && bytes[zeros] === 0) zeros += 1;
+      let value = 0n;
+      for (const byte of bytes) value = (value << 8n) + BigInt(byte);
+      let encoded = '';
+      while (value > 0n) {
+        const remainder = Number(value % 58n);
+        value /= 58n;
+        encoded = BASE58_ALPHABET[remainder] + encoded;
+      }
+      return `${BASE58_ALPHABET[0].repeat(zeros)}${encoded || (zeros ? '' : BASE58_ALPHABET[0])}`;
+    }
+
+    async function encodeBase58Check(bytes) {
+      const payload = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+      const first = await sha256Bytes(payload);
+      const second = await sha256Bytes(first);
+      const out = new Uint8Array(payload.length + 4);
+      out.set(payload, 0);
+      out.set(second.slice(0, 4), payload.length);
+      return encodeBase58(out);
+    }
+
+    function decodeBase58(str) {
+      let n = 0n;
+      for (const c of str) {
+        const idx = BASE58_ALPHABET.indexOf(c);
+        if (idx < 0) throw new Error(`Invalid Base58 char: ${c}`);
+        n = n * 58n + BigInt(idx);
+      }
+      let zeros = 0;
+      for (const c of str) { if (c !== BASE58_ALPHABET[0]) break; zeros += 1; }
+      const out = [];
+      while (n > 0n) { out.unshift(Number(n & 0xffn)); n >>= 8n; }
+      return new Uint8Array([...new Array(zeros).fill(0), ...out]);
+    }
+
+    async function decodeBase58Check(str) {
+      const raw = decodeBase58(str);
+      if (raw.length < 5) throw new Error('Base58Check too short');
+      const payload = raw.slice(0, -4);
+      const check = raw.slice(-4);
+      const hashed = await sha256Bytes(await sha256Bytes(payload));
+      for (let i = 0; i < 4; i += 1) if (check[i] !== hashed[i]) throw new Error('Invalid Base58 checksum');
+      return payload;
+    }
+
+    const SECP_P  = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEFFFFFC2Fn;
+    const SECP_N  = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141n;
+    const SECP_Gx = 0x79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798n;
+    const SECP_Gy = 0x483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8n;
+    const sModP = (n) => ((n % SECP_P) + SECP_P) % SECP_P;
+    const sModN = (n) => ((n % SECP_N) + SECP_N) % SECP_N;
+    function sInv(a, m) {
+      let [r, s, rr, ss] = [m, 0n, ((a % m) + m) % m, 1n];
+      while (rr !== 0n) {
+        const q = r / rr;
+        [r, s, rr, ss] = [rr, ss, r - q * rr, s - q * ss];
+      }
+      return ((s % m) + m) % m;
+    }
+    function japDouble(X, Y, Z) {
+      if (Y === 0n) return [0n, 1n, 0n];
+      const Y2 = sModP(Y * Y);
+      const S = sModP(4n * X * Y2);
+      const M = sModP(3n * X * X);
+      const X2 = sModP(M * M - 2n * S);
+      return [X2, sModP(M * (S - X2) - 8n * Y2 * Y2), sModP(2n * Y * Z)];
+    }
+    function japAdd(X1, Y1, Z1, X2, Y2, Z2) {
+      if (Z1 === 0n) return [X2, Y2, Z2];
+      if (Z2 === 0n) return [X1, Y1, Z1];
+      const z1s = sModP(Z1 * Z1);
+      const z2s = sModP(Z2 * Z2);
+      const U1 = sModP(X1 * z2s);
+      const U2 = sModP(X2 * z1s);
+      const S1 = sModP(Y1 * z2s * Z2);
+      const S2 = sModP(Y2 * z1s * Z1);
+      const H = sModP(U2 - U1);
+      const R = sModP(S2 - S1);
+      if (H === 0n) return R === 0n ? japDouble(X1, Y1, Z1) : [0n, 1n, 0n];
+      const Hs = sModP(H * H);
+      const Hc = sModP(H * Hs);
+      const X3 = sModP(R * R - Hc - 2n * U1 * Hs);
+      return [X3, sModP(R * (U1 * Hs - X3) - S1 * Hc), sModP(H * Z1 * Z2)];
+    }
+    function japToAff(X, Y, Z) {
+      const zi = sInv(Z, SECP_P);
+      const zi2 = sModP(zi * zi);
+      return [sModP(X * zi2), sModP(Y * sModP(zi2 * zi))];
+    }
+    function sMul(k) {
+      let [rx, ry, rz] = [0n, 1n, 0n];
+      let [ax, ay, az] = [SECP_Gx, SECP_Gy, 1n];
+      let scalar = ((k % SECP_N) + SECP_N) % SECP_N;
+      while (scalar > 0n) {
+        if (scalar & 1n) [rx, ry, rz] = japAdd(rx, ry, rz, ax, ay, az);
+        [ax, ay, az] = japDouble(ax, ay, az);
+        scalar >>= 1n;
+      }
+      return [rx, ry, rz];
+    }
+    function secPrivToPoint(privBytes) {
+      const [jx, jy, jz] = sMul(bytesToBigInt(privBytes));
+      const [x, y] = japToAff(jx, jy, jz);
+      return { x, y };
+    }
+    function secPrivToPub(privBytes) {
+      const { x, y } = secPrivToPoint(privBytes);
+      return new Uint8Array([(y & 1n) ? 0x03 : 0x02, ...bigIntToBytes32(x)]);
+    }
+
+    async function rfc6979k(privBytes, msgHash) {
+      const hmac = async (key, ...parts) => {
+        const cryptoKey = await crypto.subtle.importKey('raw', key, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+        const size = parts.reduce((sum, part) => sum + part.length, 0);
+        const merged = new Uint8Array(size);
+        let offset = 0;
+        for (const part of parts) { merged.set(part, offset); offset += part.length; }
+        return new Uint8Array(await crypto.subtle.sign('HMAC', cryptoKey, merged));
+      };
+      let V = new Uint8Array(32).fill(1);
+      let K = new Uint8Array(32).fill(0);
+      K = await hmac(K, V, new Uint8Array([0]), privBytes, msgHash);
+      V = await hmac(K, V);
+      K = await hmac(K, V, new Uint8Array([1]), privBytes, msgHash);
+      V = await hmac(K, V);
+      for (;;) {
+        V = await hmac(K, V);
+        const k = bytesToBigInt(V);
+        if (k >= 1n && k < SECP_N) return k;
+        K = await hmac(K, V, new Uint8Array([0]));
+        V = await hmac(K, V);
+      }
+    }
+
+    async function ecSign(privBytes, msgHashBytes) {
+      const d = bytesToBigInt(privBytes);
+      const z = bytesToBigInt(msgHashBytes);
+      const k = await rfc6979k(privBytes, msgHashBytes);
+      const [rx, ry] = japToAff(...sMul(k));
+      const r = sModN(rx);
+      let s = sModN(sInv(k, SECP_N) * (z + r * d));
+      let recoveryId = Number(ry & 1n) | (rx >= SECP_N ? 2 : 0);
+      if (s > SECP_N / 2n) { s = SECP_N - s; recoveryId ^= 1; }
+      return { r, s, recoveryId };
+    }
+
+    function derEncode(r, s) {
+      const mb = (n) => {
+        const bytes = [];
+        let temp = n;
+        while (temp > 0n) { bytes.unshift(Number(temp & 0xffn)); temp >>= 8n; }
+        if (bytes[0] & 0x80) bytes.unshift(0);
+        return bytes;
+      };
+      const rb = mb(r);
+      const sb = mb(s);
+      return new Uint8Array([0x30, rb.length + sb.length + 4, 0x02, rb.length, ...rb, 0x02, sb.length, ...sb]);
+    }
+
+    function ripemd160(data) {
+      const bytes = data instanceof Uint8Array ? data : new TextEncoder().encode(data);
+      const rl32 = (x, n) => (x << n) | (x >>> (32 - n));
+      const ff = (j, x, y, z) => j < 16 ? x ^ y ^ z : j < 32 ? (x & y) | (~x & z) : j < 48 ? (x | ~y) ^ z : j < 64 ? (x & z) | (y & ~z) : x ^ (y | ~z);
+      const KL = [0, 0x5A827999, 0x6ED9EBA1, 0x8F1BBCDC, 0xA953FD4E];
+      const KR = [0x50A28BE6, 0x5C4DD124, 0x6D703EF3, 0x7A6D76E9, 0];
+      const RL = [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,7,4,13,1,10,6,15,3,12,0,9,5,2,14,11,8,3,10,14,4,9,15,8,1,2,7,0,6,13,11,5,12,1,9,11,10,0,8,12,4,13,3,7,15,14,5,6,2,4,0,5,9,7,12,2,10,14,1,3,8,11,6,15,13];
+      const RR = [5,14,7,0,9,2,11,4,13,6,15,8,1,10,3,12,6,11,3,7,0,13,5,10,14,15,8,12,4,9,1,2,15,5,1,3,7,14,6,9,11,8,12,2,10,0,4,13,8,6,4,1,3,11,15,0,5,12,2,13,9,7,10,14,12,15,10,4,1,5,8,7,6,2,13,14,0,3,9,11];
+      const SL = [11,14,15,12,5,8,7,9,11,13,14,15,6,7,9,8,7,6,8,13,11,9,7,15,7,12,15,9,11,7,13,12,11,13,6,7,14,9,13,15,14,8,13,6,5,12,7,5,11,12,14,15,14,15,9,8,9,14,5,6,8,6,5,12,9,15,5,11,6,8,13,12,5,12,13,14,11,8,5,6];
+      const SR = [8,9,9,11,13,15,15,5,7,7,8,11,14,14,12,6,9,13,15,7,12,8,9,11,7,7,12,7,6,15,13,11,9,7,15,11,8,6,6,14,12,13,5,14,13,13,7,5,15,5,8,11,14,14,6,14,6,9,12,9,12,5,15,8,8,5,12,9,12,5,14,6,8,13,6,5,15,13,11,11];
+      const mlen = bytes.length;
+      const padLen = mlen % 64 < 56 ? 56 - (mlen % 64) : 120 - (mlen % 64);
+      const padded = new Uint8Array(mlen + padLen + 8);
+      padded.set(bytes);
+      padded[mlen] = 0x80;
+      const bitLen = mlen * 8;
+      for (let i = 0; i < 4; i += 1) padded[mlen + padLen + i] = (bitLen >>> (i * 8)) & 0xff;
+      const view = new DataView(padded.buffer);
+      let h0 = 0x67452301;
+      let h1 = 0xEFCDAB89;
+      let h2 = 0x98BADCFE;
+      let h3 = 0x10325476;
+      let h4 = 0xC3D2E1F0;
+      for (let offset = 0; offset < padded.length; offset += 64) {
+        const X = Array.from({ length: 16 }, (_, i) => view.getUint32(offset + i * 4, true));
+        let al = h0; let bl = h1; let cl = h2; let dl = h3; let el = h4;
+        let ar = h0; let br = h1; let cr = h2; let dr = h3; let er = h4;
+        for (let j = 0; j < 80; j += 1) {
+          const qi = j >> 4;
+          let t = (rl32((al + ff(j, bl, cl, dl) + X[RL[j]] + KL[qi]) | 0, SL[j]) + el) | 0;
+          al = el; el = dl; dl = rl32(cl, 10); cl = bl; bl = t;
+          t = (rl32((ar + ff(79 - j, br, cr, dr) + X[RR[j]] + KR[qi]) | 0, SR[j]) + er) | 0;
+          ar = er; er = dr; dr = rl32(cr, 10); cr = br; br = t;
+        }
+        const t = (h1 + cl + dr) | 0;
+        h1 = (h2 + dl + er) | 0;
+        h2 = (h3 + el + ar) | 0;
+        h3 = (h4 + al + br) | 0;
+        h4 = (h0 + bl + cr) | 0;
+        h0 = t;
+      }
+      const out = new Uint8Array(20);
+      const dv = new DataView(out.buffer);
+      [h0, h1, h2, h3, h4].forEach((value, index) => dv.setUint32(index * 4, value, true));
+      return out;
+    }
+
+    async function wifToPrivKeyBytes(wif) {
+      const payload = await decodeBase58Check(normalize(wif));
+      if (payload[0] !== 0xef) throw new Error('Only testnet3 WIF keys are supported');
+      if (payload.length === 34) return payload.slice(1, 33);
+      if (payload.length === 33) return payload.slice(1);
+      throw new Error('Unexpected WIF length');
+    }
+
+    async function privKeyToTestnetWif(privBytes) {
+      const wifBytes = new Uint8Array(34);
+      wifBytes[0] = 0xef;
+      wifBytes.set(privBytes, 1);
+      wifBytes[33] = 0x01;
+      return encodeBase58Check(wifBytes);
+    }
+
+    async function privKeyToTestnetAddr(privBytes) {
+      const pub = secPrivToPub(privBytes);
+      const hash = ripemd160(await sha256Bytes(pub));
+      return encodeBase58Check(new Uint8Array([P2FK_DEFAULT_VERSION_BYTE, ...hash]));
+    }
+
+    async function decryptPrivKey(stored, password) {
+      const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+      const aesKey = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: new Uint8Array(stored.salt), iterations: INTERNAL_WALLET_PBKDF2_ITERATIONS, hash: 'SHA-256' },
+        km,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['decrypt']
+      );
+      return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: new Uint8Array(stored.iv) }, aesKey, new Uint8Array(stored.data)));
+    }
+
+    async function encryptPrivKey(privBytes, password) {
+      const salt = crypto.getRandomValues(new Uint8Array(32));
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveKey']);
+      const aesKey = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt, iterations: INTERNAL_WALLET_PBKDF2_ITERATIONS, hash: 'SHA-256' },
+        km,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt']
+      );
+      const enc = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aesKey, privBytes);
+      return { salt: Array.from(salt), iv: Array.from(iv), data: Array.from(new Uint8Array(enc)) };
+    }
+
+    async function deriveDeterministicInternalPrivKey(basePrivBytes, label) {
+      const seedPrefix = new TextEncoder().encode(`${INTERNAL_CHANGE_DERIVATION_PREFIX}${normalize(label)}:`);
+      const baseScalar = bytesToBigInt(basePrivBytes);
+      const counterBytes = new Uint8Array(4);
+      for (let counter = 0; counter <= 0xffffffff; counter += 1) {
+        counterBytes[0] = (counter >>> 24) & 0xff;
+        counterBytes[1] = (counter >>> 16) & 0xff;
+        counterBytes[2] = (counter >>> 8) & 0xff;
+        counterBytes[3] = counter & 0xff;
+        const seed = new Uint8Array(seedPrefix.length + basePrivBytes.length + counterBytes.length);
+        seed.set(seedPrefix, 0);
+        seed.set(basePrivBytes, seedPrefix.length);
+        seed.set(counterBytes, seedPrefix.length + basePrivBytes.length);
+        const tweakHash = await sha256Bytes(seed);
+        const tweakScalar = sModN(bytesToBigInt(tweakHash));
+        if (tweakScalar === 0n) continue;
+        const derivedScalar = sModN(baseScalar + tweakScalar);
+        if (derivedScalar === 0n) continue;
+        return bigIntToBytes32(derivedScalar);
+      }
+      throw new Error('Unable to derive change key');
+    }
+
+    function buildP2pkhScript(hash160) {
+      return new Uint8Array([0x76, 0xa9, 0x14, ...hash160, 0x88, 0xac]);
+    }
+
+    async function decodeLegacyTestnetAddressPayload(address) {
+      const payload = await decodeBase58Check(normalize(address));
+      if (payload.length !== 21 || payload[0] !== 0x6f) throw new Error(`Not a legacy testnet3 address: ${address}`);
+      return payload;
+    }
+
+    async function addrToScript(address) {
+      const payload = await decodeLegacyTestnetAddressPayload(address);
+      return buildP2pkhScript(payload.slice(1));
+    }
+
+    async function buildWalletSignerEntry(privBytes, label) {
+      const pub = secPrivToPub(privBytes);
+      const hash160 = ripemd160(await sha256Bytes(pub));
+      const address = await encodeBase58Check(new Uint8Array([P2FK_DEFAULT_VERSION_BYTE, ...hash160]));
+      return { label, privBytes, pub, scriptPubKey: buildP2pkhScript(hash160), address };
+    }
+
+    async function buildInternalWalletKeyring(basePrivBytes) {
+      const main = await buildWalletSignerEntry(basePrivBytes, 'main');
+      const changeSigners = [];
+      for (let i = 0; i < INTERNAL_CHANGE_ADDRESS_COUNT; i += 1) {
+        const derived = await deriveDeterministicInternalPrivKey(basePrivBytes, `slot-${i + 1}`);
+        changeSigners.push(await buildWalletSignerEntry(derived, `change-${i + 1}`));
+      }
+      return { main, changeSigners, allSigners: [main, ...changeSigners] };
+    }
+
+    function serializeBtcTx(inputs, outputs, sigIdx = -1, sigScript = null) {
+      const u32 = (value) => [value & 0xff, (value >> 8) & 0xff, (value >> 16) & 0xff, (value >>> 24) & 0xff];
+      const u64 = (value) => {
+        const n = BigInt(Math.round(value));
+        return [...u32(Number(n & 0xffffffffn)), ...u32(Number((n >> 32n) & 0xffffffffn))];
+      };
+      const vi = (n) => n < 0xfd ? [n] : n <= 0xffff ? [0xfd, n & 0xff, (n >> 8) & 0xff] : [0xfe, n & 0xff, (n >> 8) & 0xff, (n >> 16) & 0xff, (n >>> 24) & 0xff];
+      const out = [...u32(1), ...vi(inputs.length)];
+      for (let i = 0; i < inputs.length; i += 1) {
+        out.push(...Array.from(hexToBytes(inputs[i].txid)).reverse(), ...u32(inputs[i].vout));
+        const script = sigIdx >= 0 ? (i === sigIdx ? sigScript : new Uint8Array([])) : (inputs[i].scriptSig || new Uint8Array([]));
+        out.push(...vi(script.length), ...script, ...u32(0xffffffff));
+      }
+      out.push(...vi(outputs.length));
+      for (const output of outputs) out.push(...u64(output.valueSats), ...vi(output.script.length), ...output.script);
+      out.push(...u32(0));
+      return new Uint8Array(out);
+    }
+
+    async function buildSignedBtcTx(utxos, outputs) {
+      const inputs = utxos.map((utxo) => ({ txid: utxo.txid, vout: utxo.vout, signer: utxo.signer, scriptSig: new Uint8Array([]) }));
+      const finalOutputs = await Promise.all(outputs.map(async (output) => ({ valueSats: output.valueSats, script: await addrToScript(output.address) })));
+      for (let i = 0; i < inputs.length; i += 1) {
+        const signer = inputs[i].signer;
+        const preimage = new Uint8Array([...serializeBtcTx(inputs, finalOutputs, i, signer.scriptPubKey), 1, 0, 0, 0]);
+        const sigHash = await sha256Bytes(await sha256Bytes(preimage));
+        const { r, s } = await ecSign(signer.privBytes, sigHash);
+        const der = derEncode(r, s);
+        inputs[i].scriptSig = new Uint8Array([der.length + 1, ...der, 0x01, signer.pub.length, ...signer.pub]);
+      }
+      return bytesToHex(serializeBtcTx(inputs, finalOutputs));
+    }
+
+    async function buildAndBroadcastInternalTx(sendManyOutputs) {
+      if (!state.internalPrivKeyBytes) throw new Error('Wallet is locked');
+      const keyring = await buildInternalWalletKeyring(state.internalPrivKeyBytes);
+      const byAddress = new Map(keyring.allSigners.map((signer) => [signer.address, signer]));
+      const [changeA, changeB] = keyring.changeSigners;
+      const utxoGroups = await Promise.all(keyring.allSigners.map(async (signer) => {
+        const response = await fetch(`${MEMPOOL_TESTNET_API}/address/${encodeURIComponent(signer.address)}/utxo`);
+        if (!response.ok) throw new Error(`UTXO fetch failed (${response.status}) for ${signer.label}`);
+        const json = await response.json();
+        return json.filter((utxo) => utxo.status?.confirmed).map((utxo) => ({ ...utxo, sourceAddress: signer.address, signer }));
+      }));
+      const allUtxos = utxoGroups.flat();
+      if (!allUtxos.length) throw new Error('No confirmed UTXOs found in the wallet');
+      let feeRate = BTC_DEFAULT_FEE_RATE;
+      try {
+        const fr = await fetch(`${MEMPOOL_TESTNET_API}/v1/fees/recommended`);
+        const payload = await fr.json();
+        feeRate = Math.max(Number(payload?.halfHourFee || BTC_DEFAULT_FEE_RATE), BTC_MIN_FEE_RATE);
+      } catch {}
+      const estimateFee = (inputsCount, outputsCount) => Math.ceil((10 + (148 * inputsCount) + (34 * outputsCount)) * feeRate);
+      const outSats = sendManyOutputs.map((output) => ({ address: output.address, valueSats: Math.round(output.amount * 1e8) }));
+      const totalOut = outSats.reduce((sum, output) => sum + output.valueSats, 0);
+      const totalsByAddress = keyring.allSigners.reduce((map, signer) => map.set(signer.address, 0), new Map());
+      allUtxos.forEach((utxo) => totalsByAddress.set(utxo.sourceAddress, (totalsByAddress.get(utxo.sourceAddress) || 0) + Number(utxo.value || 0)));
+      const preferredSource = (totalsByAddress.get(changeA.address) || 0) >= (totalsByAddress.get(changeB.address) || 0) ? changeA : changeB;
+      const secondarySource = preferredSource.address === changeA.address ? changeB : changeA;
+      const sourceCandidates = [];
+      if ((totalsByAddress.get(preferredSource.address) || 0) > 0) sourceCandidates.push(preferredSource);
+      if ((totalsByAddress.get(secondarySource.address) || 0) > 0) sourceCandidates.push(secondarySource);
+      if ((totalsByAddress.get(keyring.main.address) || 0) > 0) sourceCandidates.push(keyring.main);
+      let selectedSource = null;
+      let selection = [];
+      let selectionTotal = 0;
+      for (const source of sourceCandidates) {
+        const pool = allUtxos.filter((utxo) => utxo.sourceAddress === source.address).sort((a, b) => b.value - a.value);
+        const localSelection = [];
+        let localTotal = 0;
+        for (const utxo of pool) {
+          localSelection.push(utxo);
+          localTotal += utxo.value;
+          const fee = estimateFee(localSelection.length, outSats.length + 1);
+          if (localTotal >= totalOut + fee) break;
+        }
+        const fee = estimateFee(localSelection.length, outSats.length + 1);
+        if (localSelection.length && localTotal >= totalOut + fee) {
+          selectedSource = source;
+          selection = localSelection;
+          selectionTotal = localTotal;
+          break;
+        }
+      }
+      if (!selectedSource) throw new Error('Insufficient funds in a single deterministic source address');
+      const fee = estimateFee(selection.length, outSats.length + 1);
+      const change = selectionTotal - totalOut - fee;
+      if (change < 0) throw new Error('Insufficient balance after fee');
+      let changeAddress = preferredSource.address;
+      if (selectedSource.address === changeA.address) changeAddress = changeB.address;
+      if (selectedSource.address === changeB.address) changeAddress = changeA.address;
+      const finalOutputs = [...outSats];
+      if (change >= BTC_DUST_LIMIT_SAT) finalOutputs.push({ address: changeAddress, valueSats: change });
+      const rawHex = await buildSignedBtcTx(selection, finalOutputs);
+      const broadcast = await fetch(`${MEMPOOL_TESTNET_API}/tx`, { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: rawHex });
+      if (!broadcast.ok) throw new Error(`Broadcast failed: ${await broadcast.text()}`);
+      return (await broadcast.text()).trim();
+    }
+
+    function pickRandomDelimiter() {
+      const bytes = new Uint8Array(1);
+      const limit = Math.floor(256 / SIGNING_DELIMITERS.length) * SIGNING_DELIMITERS.length;
+      let value = 0;
+      do {
+        crypto.getRandomValues(bytes);
+        value = bytes[0];
+      } while (value >= limit);
+      return SIGNING_DELIMITERS[value % SIGNING_DELIMITERS.length];
+    }
+
+    function createNegativeSalt() {
+      const bytes = new Uint32Array(1);
+      crypto.getRandomValues(bytes);
+      return -(bytes[0] % 100000);
+    }
+
+    function parseHashtagKeywords(message) {
+      const matches = normalize(message).match(/#[^\s]{1,20}/g) || [];
+      return [...new Set(matches.map((token) => token.slice(1).trim()).filter(Boolean))];
+    }
+
+    function sanitizeP2fkMessageText(message) {
+      return decodeHtmlEntities(normalize(message)).replace(/[<>]/g, ' ');
+    }
+
+    function parseManualRecipients(rawText) {
+      return normalize(rawText).split(/[;,]/).map((entry) => entry.trim()).filter(Boolean);
+    }
+
+    async function encodeP2fkAddresses(payloadText, versionByte = P2FK_DEFAULT_VERSION_BYTE) {
+      const payload = new TextEncoder().encode(payloadText);
+      const addresses = [];
+      const seen = new Set();
+      for (let idx = 0; idx < payload.length; idx += P2FK_CHUNK_SIZE_BYTES) {
+        const chunk = payload.slice(idx, idx + P2FK_CHUNK_SIZE_BYTES);
+        const padded = new Uint8Array(P2FK_CHUNK_SIZE_BYTES);
+        padded.fill(P2FK_PADDING_CHAR.charCodeAt(0));
+        padded.set(chunk);
+        const addressBytes = new Uint8Array(1 + P2FK_CHUNK_SIZE_BYTES);
+        addressBytes[0] = versionByte;
+        addressBytes.set(padded, 1);
+        const encoded = await encodeBase58Check(addressBytes);
+        if (!seen.has(encoded)) {
+          seen.add(encoded);
+          addresses.push(encoded);
+        }
+      }
+      return addresses;
+    }
+
+    async function signWithWallet(messageText) {
+      if (!state.internalPrivKeyBytes) throw new Error('Wallet is locked');
+      const messageDigest = await hashBitcoinSignedMessage(messageText);
+      const { r, s, recoveryId } = await ecSign(state.internalPrivKeyBytes, messageDigest);
+      const compact = new Uint8Array(65);
+      compact[0] = 27 + 4 + recoveryId;
+      compact.set(bigIntToBytes32(r), 1);
+      compact.set(bigIntToBytes32(s), 33);
+      return btoa(String.fromCharCode.apply(null, compact));
+    }
+
+    async function getPublicAddressByKeywordLocal(keyword) {
+      const text = normalize(keyword);
+      const bytes = new TextEncoder().encode(text);
+      const payload = new Uint8Array(21);
+      payload[0] = P2FK_DEFAULT_VERSION_BYTE;
+      if (bytes.length >= 20) payload.set(bytes.slice(0, 20), 1);
+      else {
+        payload.set(bytes, 1);
+        payload.fill('#'.charCodeAt(0), 1 + bytes.length);
+      }
+      return encodeBase58Check(payload);
+    }
+
+    async function resolveKeywordAddress(keyword) {
+      const token = normalize(keyword).replace(/^#/, '');
+      if (!token) return '';
+      if (state.keywordCache.has(token)) return state.keywordCache.get(token);
+      try {
+        const response = await fetch(`${API_BASE}/GetPublicAddressByKeyword/${encodeURIComponent(token)}?mainnet=false`);
+        if (response.ok) {
+          const text = normalize(await response.text());
+          if (text.startsWith('"') && text.endsWith('"')) {
+            const parsed = JSON.parse(text);
+            if (typeof parsed === 'string' && parsed) {
+              state.keywordCache.set(token, parsed);
+              return parsed;
+            }
+          }
+          const direct = text.replace(/^"|"$/g, '');
+          if (isAddress(direct)) {
+            state.keywordCache.set(token, direct);
+            return direct;
+          }
+        }
+      } catch {}
+      const local = await getPublicAddressByKeywordLocal(token);
+      state.keywordCache.set(token, local);
+      return local;
+    }
+
+    async function buildP2fkRecipientsAndCost({ messageText, attachments, extraRecipients = [], fromAddress, amountPerRecipient }) {
+      const safeMessageText = sanitizeP2fkMessageText(messageText);
+      const delimiter = pickRandomDelimiter();
+      const payloadText = `${safeMessageText}${attachments.map((item) => `<<${item}>>`).join('')}<<${createNegativeSalt()}>>`;
+      const unsignedObj = `${delimiter}${utf8ByteLength(payloadText)}${delimiter}${payloadText}`;
+      const signedHashHex = (await sha256HexFromText(unsignedObj)).toUpperCase();
+      const signature = await signWithWallet(signedHashHex);
+      const signedObj = `SIG${delimiter}${P2FK_SIGNATURE_VERSION_MARKER}${delimiter}${signature}${unsignedObj}`;
+      const recipients = await encodeP2fkAddresses(signedObj);
+      const recipientSet = new Set(recipients);
+      await decodeLegacyTestnetAddressPayload(fromAddress);
+      for (const keyword of parseHashtagKeywords(safeMessageText)) recipientSet.add(await resolveKeywordAddress(keyword));
+      for (const recipient of extraRecipients) {
+        const address = normalize(recipient);
+        if (!address || address === fromAddress) continue;
+        await decodeLegacyTestnetAddressPayload(address);
+        recipientSet.add(address);
+      }
+      recipientSet.add(fromAddress);
+      const outputs = [...recipientSet].map((address) => ({ address, amount: amountPerRecipient }));
+      return { outputs, cost: outputs.length * amountPerRecipient, signedObj, unsignedObj, payloadText };
+    }
+
+    function buildIpfsPathUrl(cid, path = '', gatewayIndex = 0) {
+      const gateway = IPFS_GATEWAY_URLS[Math.abs(gatewayIndex) % IPFS_GATEWAY_URLS.length];
+      return `${gateway}${cid}${path ? `/${path.replace(/^\/+/, '')}` : ''}`;
+    }
+
+    function extractLooseIpfsPartsFromText(value) {
+      const text = normalize(value);
+      if (!text) return null;
+      const match = text.match(/(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[1-9A-HJ-NP-Za-km-z]{20,})(?:[\\/]+([^\s<>]+))?/i);
+      if (!match) return null;
+      return { cid: match[1], path: normalize(match[2] || '') };
+    }
+
+    function extractIpfsPartsFromInput(value) {
+      const input = normalize(value);
+      if (!input) return null;
+      if (/^ipfs:/i.test(input)) {
+        const body = input.replace(/^ipfs:/i, '').replace(/^\/+/, '');
+        const [cidRaw, ...parts] = body.split(/[\\/]+/).filter(Boolean);
+        const cid = normalize(cidRaw || '');
+        return COMPOSER_CID_REGEX.test(cid) ? { cid, path: parts.join('/') } : null;
+      }
+      if (/^ipfs:\/\//i.test(input)) {
+        return extractIpfsPartsFromInput(input.replace(/^ipfs:\/\//i, 'IPFS:'));
+      }
+      const loose = extractLooseIpfsPartsFromText(input);
+      if (loose?.cid) return loose;
+      try {
+        const parsed = new URL(input);
+        const hostIpfsSplit = normalize(parsed.hostname).split('.ipfs.');
+        if (hostIpfsSplit.length > 1 && COMPOSER_CID_REGEX.test(hostIpfsSplit[0])) return { cid: hostIpfsSplit[0], path: normalize(parsed.pathname).replace(/^\/+/, '') };
+        const pathMatch = normalize(parsed.pathname).match(IPFS_PATH_URL_REGEX);
+        if (pathMatch) return { cid: pathMatch[1], path: normalize(pathMatch[2] || '') };
+      } catch {}
+      return null;
+    }
+
+    function normalizeOnChainAttachment(value) {
+      const text = normalize(value);
+      const match = text.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})[\\/]([^\s<>]+)$/);
+      if (!match) return null;
+      const chain = normalize(match[1] || '');
+      const txid = match[2].toLowerCase();
+      const path = normalize(match[3]).replace(/^\/+/, '').replace(UNSAFE_FILENAME_CHARS_REGEX, '');
+      if (!path) throw new Error('Attachment filename is required');
+      return `${chain ? `${chain.toUpperCase()}:` : ''}${txid}/${path}`;
+    }
+
+    async function normalizeAttachmentReference(rawInput, { imageOnly = false } = {}) {
+      const input = normalize(rawInput);
+      if (!input) throw new Error('Enter an attachment or image reference');
+      const ipfs = extractIpfsPartsFromInput(input);
+      if (ipfs?.cid) {
+        const safePath = normalize(ipfs.path || '').replace(/^\/+/, '').split('/').map((part) => part.replace(UNSAFE_FILENAME_CHARS_REGEX, '')).filter(Boolean).join('/');
+        const canonical = `IPFS:${ipfs.cid}${safePath ? `/${safePath}` : ''}`;
+        const previewUrl = buildIpfsPathUrl(ipfs.cid, safePath);
+        return { canonical, previewUrl, type: IMAGE_EXT_REGEX.test(safePath) ? 'image' : VIDEO_EXT_REGEX.test(safePath) ? 'video' : AUDIO_EXT_REGEX.test(safePath) ? 'audio' : 'file' };
+      }
+      const onChain = normalizeOnChainAttachment(input);
+      if (onChain) {
+        return { canonical: onChain, previewUrl: '', type: IMAGE_EXT_REGEX.test(onChain) ? 'image' : VIDEO_EXT_REGEX.test(onChain) ? 'video' : AUDIO_EXT_REGEX.test(onChain) ? 'audio' : 'file' };
+      }
+      if (/^https?:\/\//i.test(input)) {
+        const url = new URL(input);
+        if (imageOnly && !IMAGE_EXT_REGEX.test(url.pathname)) {
+          throw new Error('Profile images must be IPFS, on-chain image refs, or direct image URLs');
+        }
+        return { canonical: url.toString(), previewUrl: url.toString(), type: IMAGE_EXT_REGEX.test(url.pathname) ? 'image' : VIDEO_EXT_REGEX.test(url.pathname) ? 'video' : AUDIO_EXT_REGEX.test(url.pathname) ? 'audio' : 'link' };
+      }
+      throw new Error('Use IPFS:cid/file.ext, txid/file.ext, chain:txid/file.ext, or https://...');
+    }
+
+    function renderKvRow(container, kind, entry = {}) {
+      const row = document.createElement('div');
+      row.className = 'kv-row';
+      row.innerHTML = `
+        <label>${kind === 'url' ? 'Label' : 'Key'}<input type="text" value="${escapeHtml(entry.key || '')}" data-role="key"></label>
+        <label>${kind === 'url' ? 'URL' : 'Value'}<input type="text" value="${escapeHtml(entry.value || '')}" data-role="value"></label>
+        <button type="button" class="danger">Remove</button>
+      `;
+      row.querySelector('button').addEventListener('click', () => row.remove());
+      container.appendChild(row);
+      return row;
+    }
+
+    function collectPairValues(container) {
+      return [...container.children].reduce((acc, row) => {
+        const key = normalize(row.querySelector('[data-role="key"]')?.value || '');
+        const value = normalize(row.querySelector('[data-role="value"]')?.value || '');
+        if (key && value) acc[key] = value;
+        return acc;
+      }, {});
+    }
+
+    async function fetchJson(url, timeout = 15000) {
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), timeout);
+      try {
+        const response = await fetch(url, { signal: controller.signal });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return await response.json();
+      } finally {
+        clearTimeout(id);
+      }
+    }
+
+    function normalizeProfile(raw, fallbackAddress = '') {
+      if (!raw || typeof raw !== 'object') return null;
+      const creators = Array.isArray(raw.Creators)
+        ? raw.Creators.filter((item) => typeof item === 'string')
+        : Object.keys(raw.Creators || {}).filter((item) => item !== '0');
+      const address = fallbackAddress || normalize(raw.Address || raw._address || creators[0] || '');
+      const urls = raw.URL || raw.Url || raw.url || {};
+      const loc = raw.Location || raw.Loc || raw.loc || {};
+      return {
+        raw,
+        address,
+        creators,
+        urn: normalize(raw.URN || raw.urn || raw.DisplayName || ''),
+        displayName: normalize(raw.DisplayName || raw.URN || raw.urn || address || 'Unknown'),
+        bio: normalize(raw.Bio || raw.bio || ''),
+        image: normalize(raw.Image || raw.img || ''),
+        createdDate: raw.CreatedDate || raw['Created Date'] || raw.createdDate || '',
+        changedDate: raw.ChangedDate || raw['Changed Date'] || raw.changedDate || '',
+        firstName: normalize(raw.FirstName || raw.fnm || ''),
+        middleName: normalize(raw.MiddleName || raw.mnm || ''),
+        lastName: normalize(raw.LastName || raw.lnm || ''),
+        suffix: normalize(raw.Suffix || raw.sfx || ''),
+        pkx: normalize(raw.PublicKeyX || raw.pkx || ''),
+        pky: normalize(raw.PublicKeyY || raw.pky || ''),
+        urls,
+        loc
+      };
+    }
+
+    function normalizeRoot(root) {
+      if (!root || typeof root !== 'object') return null;
+      const rawMessage = root.Message ?? root['Message'] ?? '';
+      const message = Array.isArray(rawMessage) ? rawMessage.join('\n') : String(rawMessage ?? '');
+      const signedBy = normalize(root['Signed By'] ?? root.SignedBy ?? '');
+      const blockDate = root['Block Date'] ?? root.BlockDate ?? '';
+      const txId = normalize(root['Transaction Id'] ?? root.TransactionId ?? root['Transaction ID'] ?? '').toLowerCase();
+      const outputObj = root.Output ?? root['Output'] ?? {};
+      const outputAddresses = Object.keys(outputObj || {});
+      const rawFile = root.File ?? root['File'] ?? null;
+      const files = (rawFile && typeof rawFile === 'object' && !Array.isArray(rawFile)) ? Object.keys(rawFile).filter((file) => file && file !== 'SIG') : [];
+      return {
+        message,
+        fromAddress: signedBy,
+        toAddresses: outputAddresses.length > 1 ? outputAddresses.slice(Math.max(0, outputAddresses.length - 3), outputAddresses.length - 1) : [],
+        blockDate,
+        txId,
+        files,
+        confirmations: root.Confirmations ?? root['Confirmations'] ?? null,
+        raw
+      };
+    }
+
+    async function fetchProfileByAddress(address) {
+      const key = `addr:${address}`;
+      if (state.profileCaches.has(key)) return state.profileCaches.get(key);
+      const raw = await fetchJson(`${API_BASE}/GetProfileByAddress/${encodeURIComponent(address)}?mainnet=false`);
+      const normalized = normalizeProfile(Array.isArray(raw) ? raw[0] : raw, address);
+      state.profileCaches.set(key, normalized);
+      if (normalized?.urn) state.profileCaches.set(`urn:${normalized.urn}`, normalized);
+      return normalized;
+    }
+
+    async function fetchProfileByURN(urn) {
+      const key = `urn:${urn}`;
+      if (state.profileCaches.has(key)) return state.profileCaches.get(key);
+      const raw = await fetchJson(`${API_BASE}/GetProfileByURN/${encodeURIComponent(urn)}?mainnet=false`);
+      const normalized = normalizeProfile(Array.isArray(raw) ? raw[0] : raw);
+      state.profileCaches.set(key, normalized);
+      if (normalized?.address) state.profileCaches.set(`addr:${normalized.address}`, normalized);
+      return normalized;
+    }
+
+    async function isOfficialProfile(profile) {
+      if (!profile?.urn || !profile?.address) return true;
+      try {
+        const official = await fetchProfileByURN(profile.urn);
+        return Boolean(official?.address && official.address === profile.address);
+      } catch {
+        return true;
+      }
+    }
+
+    async function getAddressBalanceStats(address) {
+      const response = await fetch(`${MEMPOOL_TESTNET_API}/address/${encodeURIComponent(address)}`);
+      if (!response.ok) throw new Error(`Balance lookup failed (${response.status})`);
+      const payload = await response.json();
+      const chainStats = payload?.chain_stats || {};
+      const mempoolStats = payload?.mempool_stats || {};
+      return {
+        confirmedSat: Number(chainStats.funded_txo_sum || 0) - Number(chainStats.spent_txo_sum || 0),
+        unconfirmedSat: Number(mempoolStats.funded_txo_sum || 0) - Number(mempoolStats.spent_txo_sum || 0)
+      };
+    }
+
+    function buildProfileImageUrl(ref) {
+      const value = normalize(ref);
+      if (!value) return fallbackAvatar;
+      if (/^https?:\/\//i.test(value)) return value;
+      const ipfs = extractIpfsPartsFromInput(value);
+      if (ipfs?.cid) return buildIpfsPathUrl(ipfs.cid, ipfs.path);
+      const onChain = value.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})[\\/]([^\s<>]+)$/);
+      if (onChain) return `${API_BASE}/root/${onChain[2].toLowerCase()}/${encodeURIComponent(onChain[3])}`;
+      return fallbackAvatar;
+    }
+
+    function annotateMessageBody(text) {
+      const escaped = escapeHtml(text);
+      return escaped
+        .replace(/(@[A-Za-z0-9/]{1,64})/g, '<span class="mention">$1</span>')
+        .replace(/(#[A-Za-z0-9_-]{2,32})/g, '<span class="tag">$1</span>')
+        .replace(/(&lt;&lt;[0-9a-fA-F]{64}&gt;&gt;)/g, '<span class="comment-ref">$1</span>');
+    }
+
+    async function parseMessage(messageText) {
+      const decoded = String(messageText ?? '').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+      const attachments = [];
+      const links = [];
+      const cleanMessage = decoded.replace(/<<[^>]+>>/g, '').trim();
+      const refs = decoded.match(/<<[^>]+>>/g) || [];
+      refs.forEach((ref) => {
+        const inner = ref.slice(2, -2).trim();
+        if (!inner || /^-?\d+$/.test(inner) || TXID_ONLY_REGEX.test(inner)) return;
+        if (/^https?:\/\//i.test(inner)) links.push(inner);
+        else if (/^IPFS:/i.test(inner) || /^[0-9a-fA-F]{64}[\\/]/.test(inner) || /^(BTC|LTC|DOG|MZC):[0-9a-fA-F]{64}[\\/]/i.test(inner)) attachments.push(inner);
+      });
+      return { cleanMessage, attachments, links };
+    }
+
+    function renderAttachmentToken(token) {
+      const wrap = document.createElement('div');
+      wrap.className = 'card';
+      const normalized = normalize(token);
+      let preview = '';
+      if (/^https?:\/\//i.test(normalized)) preview = normalized;
+      else {
+        const ipfs = extractIpfsPartsFromInput(normalized);
+        if (ipfs?.cid) preview = buildIpfsPathUrl(ipfs.cid, ipfs.path);
+        else {
+          const onChain = normalized.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})[\\/]([^\s<>]+)$/);
+          if (onChain) preview = `${API_BASE}/root/${onChain[2].toLowerCase()}/${encodeURIComponent(onChain[3])}`;
+        }
+      }
+      if (preview && IMAGE_EXT_REGEX.test(preview)) {
+        wrap.innerHTML = `<img src="${escapeHtml(preview)}" alt="Attachment preview">`;
+      } else if (preview && AUDIO_EXT_REGEX.test(preview)) {
+        wrap.innerHTML = `<audio controls src="${escapeHtml(preview)}"></audio>`;
+      } else if (preview && VIDEO_EXT_REGEX.test(preview)) {
+        wrap.innerHTML = `<video controls src="${escapeHtml(preview)}"></video>`;
+      } else {
+        wrap.innerHTML = `<div class="mini address">${escapeHtml(token)}</div>${preview ? `<a href="${escapeHtml(preview)}" target="_blank" rel="noopener">Open</a>` : ''}`;
+      }
+      return wrap;
+    }
+
+    function clearChildren(element) { element.replaceChildren(); }
+
+    function renderWalletInfo(balance = null) {
+      const unlocked = Boolean(state.internalPrivKeyBytes && state.walletSession.address);
+      dom.walletInfo.classList.toggle('hidden', !unlocked);
+      if (!unlocked) { dom.walletInfo.innerHTML = ''; return; }
+      const html = [
+        `<div><strong>Unlocked address</strong></div>`,
+        `<div class="address">${escapeHtml(state.walletSession.address)}</div>`,
+        balance ? `<div class="wallet-meta"><span class="badge good">Confirmed ${(balance.confirmedSat / 1e8).toFixed(8)} tBTC</span><span class="badge warn">Unconfirmed ${(balance.unconfirmedSat / 1e8).toFixed(8)} tBTC</span></div>` : '<div class="mini">Balance unavailable</div>'
+      ].join('');
+      dom.walletInfo.innerHTML = html;
+    }
+
+    async function refreshWalletUi() {
+      const unlocked = Boolean(state.internalPrivKeyBytes && state.walletSession.address);
+      dom.profileLockedHint.classList.toggle('hidden', unlocked);
+      dom.profileEditor.classList.toggle('hidden', !unlocked);
+      dom.walletExport.disabled = !unlocked;
+      dom.walletLock.disabled = !unlocked;
+      try {
+        if (unlocked) renderWalletInfo(await getAddressBalanceStats(state.walletSession.address));
+        else renderWalletInfo();
+      } catch {
+        renderWalletInfo();
+      }
+      if (unlocked) {
+        dom.profileEditorIntro.innerHTML = `<div><strong>Unlocked signature address</strong></div><div class="address">${escapeHtml(state.walletSession.address)}</div><div class="mini">Profile claims and edits will only broadcast from this address.</div>`;
+      }
+      await loadOwnProfileIntoEditor();
+    }
+
+    async function onGenerateNewKey() {
+      setStatus(dom.walletState, 'Generating a delimiter-safe testnet3 address…');
+      try {
+        let privBytes;
+        let wif = '';
+        let addr = '';
+        let attempts = 0;
+        const hasDelimiterPair = (value) => /[\\/:*?"|<>][0-9]/.test(cleanDisplayText(value || '', 120));
+        do {
+          attempts += 1;
+          privBytes = crypto.getRandomValues(new Uint8Array(32));
+          if (bytesToBigInt(privBytes) === 0n || bytesToBigInt(privBytes) >= SECP_N) continue;
+          wif = await privKeyToTestnetWif(privBytes);
+          addr = await privKeyToTestnetAddr(privBytes);
+        } while (attempts < 64 && (!wif || !addr || hasDelimiterPair(wif) || hasDelimiterPair(addr)));
+        if (!wif || !addr) throw new Error('Could not generate a safe address; try again');
+        dom.walletWif.value = wif;
+        setStatus(dom.walletState, `Generated ${addr}. Set a password and click “Import + unlock”.`, 'good');
+      } catch (error) {
+        setStatus(dom.walletState, error?.message || 'Key generation failed', 'danger');
+      }
+    }
+
+    async function onImportWallet() {
+      const wif = normalize(dom.walletWif.value);
+      const password = normalize(dom.walletPassword.value);
+      if (!wif) return setStatus(dom.walletState, 'Enter a testnet3 WIF private key', 'warn');
+      if (password.length < INTERNAL_WALLET_MIN_PASSWORD_LENGTH) return setStatus(dom.walletState, `Password must be at least ${INTERNAL_WALLET_MIN_PASSWORD_LENGTH} characters`, 'warn');
+      setStatus(dom.walletState, 'Encrypting and unlocking wallet…');
+      try {
+        const privBytes = await wifToPrivKeyBytes(wif);
+        const address = await privKeyToTestnetAddr(privBytes);
+        const encrypted = await encryptPrivKey(privBytes, password);
+        localStorage.setItem(INTERNAL_WALLET_STORAGE_KEY, JSON.stringify(encrypted));
+        state.internalPrivKeyBytes = privBytes;
+        state.walletSession = { address, providerId: 'internal' };
+        dom.walletWif.value = '';
+        dom.walletPassword.value = '';
+        setStatus(dom.walletState, `Wallet unlocked: ${address}`, 'good');
+        await refreshWalletUi();
+      } catch (error) {
+        setStatus(dom.walletState, error?.message || 'Import failed', 'danger');
+      }
+    }
+
+    async function onUnlockWallet() {
+      const password = normalize(dom.walletUnlockPassword.value);
+      if (!password) return setStatus(dom.walletState, 'Enter your unlock password', 'warn');
+      setStatus(dom.walletState, 'Unlocking wallet…');
+      try {
+        const stored = JSON.parse(localStorage.getItem(INTERNAL_WALLET_STORAGE_KEY) || 'null');
+        if (!stored) throw new Error('No stored wallet found — import one first');
+        const privBytes = await decryptPrivKey(stored, password);
+        const address = await privKeyToTestnetAddr(privBytes);
+        state.internalPrivKeyBytes = privBytes;
+        state.walletSession = { address, providerId: 'internal' };
+        dom.walletUnlockPassword.value = '';
+        setStatus(dom.walletState, `Wallet unlocked: ${address}`, 'good');
+        await refreshWalletUi();
+      } catch (error) {
+        setStatus(dom.walletState, error?.message || 'Unlock failed', 'danger');
+      }
+    }
+
+    async function onExportWallet() {
+      if (!state.internalPrivKeyBytes) return setStatus(dom.walletState, 'Unlock the wallet first', 'warn');
+      try {
+        const wif = await privKeyToTestnetWif(state.internalPrivKeyBytes);
+        await navigator.clipboard.writeText(wif);
+        setStatus(dom.walletState, 'WIF copied to clipboard', 'good');
+      } catch (error) {
+        setStatus(dom.walletState, error?.message || 'Could not copy WIF', 'danger');
+      }
+    }
+
+    function onLockWallet() {
+      state.internalPrivKeyBytes = null;
+      state.walletSession = { address: '', providerId: 'internal' };
+      state.currentProfile = null;
+      state.handleCheck = null;
+      setStatus(dom.walletState, 'Wallet locked', 'warn');
+      refreshWalletUi();
+    }
+
+    function onForgetWallet() {
+      localStorage.removeItem(INTERNAL_WALLET_STORAGE_KEY);
+      onLockWallet();
+      setStatus(dom.walletState, 'Stored wallet removed from browser storage', 'warn');
+    }
+
+    function profileBelongsToUnlockedWallet(profile) {
+      return Boolean(profile?.address && state.walletSession.address && profile.address === state.walletSession.address);
+    }
+
+    function populateProfileEditor(profile) {
+      const p = profile || {};
+      dom.proUrn.value = p.urn || '';
+      dom.proFnm.value = p.firstName || '';
+      dom.proMnm.value = p.middleName || '';
+      dom.proLnm.value = p.lastName || '';
+      dom.proSfx.value = p.suffix || '';
+      dom.proBio.value = p.bio || '';
+      dom.proImg.value = p.image || '';
+      dom.proEnableSec.checked = Boolean(p.pkx || p.pky);
+      state.normalizedProfileImage = p.image || '';
+      clearChildren(dom.urlPairs);
+      clearChildren(dom.locPairs);
+      Object.entries(p.urls || {}).forEach(([key, value]) => renderKvRow(dom.urlPairs, 'url', { key, value }));
+      Object.entries(p.loc || {}).forEach(([key, value]) => renderKvRow(dom.locPairs, 'loc', { key, value }));
+      if (!dom.urlPairs.children.length) renderKvRow(dom.urlPairs, 'url');
+      if (!dom.locPairs.children.length) renderKvRow(dom.locPairs, 'loc');
+      state.handleCheck = null;
+      dom.handleBadge.textContent = 'Unchecked';
+      dom.handleBadge.className = 'badge';
+      dom.imageBadge.textContent = p.image ? 'Loaded' : 'Unchecked';
+      dom.imageBadge.className = `badge${p.image ? ' good' : ''}`;
+    }
+
+    async function loadOwnProfileIntoEditor() {
+      if (!state.walletSession.address) return;
+      try {
+        const profile = await fetchProfileByAddress(state.walletSession.address);
+        state.currentProfile = profile;
+        populateProfileEditor(profile || null);
+      } catch {
+        state.currentProfile = null;
+        populateProfileEditor(null);
+      }
+    }
+
+    async function checkHandleAvailability() {
+      const urn = normalize(dom.proUrn.value);
+      if (!urn) return setStatus(dom.profileState, 'Enter a handle/URN first', 'warn');
+      setStatus(dom.profileState, 'Checking handle availability…');
+      try {
+        const found = await fetchProfileByURN(urn);
+        if (!found?.address) {
+          state.handleCheck = { urn, available: true, owner: '' };
+          dom.handleBadge.textContent = 'Available';
+          dom.handleBadge.className = 'badge good';
+          return setStatus(dom.profileState, `@${urn} is available`, 'good');
+        }
+        if (found.address === state.walletSession.address) {
+          state.handleCheck = { urn, available: true, owner: found.address };
+          dom.handleBadge.textContent = 'Yours';
+          dom.handleBadge.className = 'badge good';
+          return setStatus(dom.profileState, `@${urn} is already owned by your unlocked signature address`, 'good');
+        }
+        state.handleCheck = { urn, available: false, owner: found.address };
+        dom.handleBadge.textContent = 'Taken';
+        dom.handleBadge.className = 'badge danger';
+        return setStatus(dom.profileState, `@${urn} is already claimed by ${found.address}`, 'danger');
+      } catch (error) {
+        state.handleCheck = null;
+        dom.handleBadge.textContent = 'Unknown';
+        dom.handleBadge.className = 'badge warn';
+        return setStatus(dom.profileState, `Could not verify handle availability: ${error?.message || 'network error'}`, 'warn');
+      }
+    }
+
+    async function validateProfileImage() {
+      try {
+        const normalized = await normalizeAttachmentReference(dom.proImg.value, { imageOnly: true });
+        state.normalizedProfileImage = normalized.canonical;
+        dom.proImg.value = normalized.canonical;
+        dom.imageBadge.textContent = 'Valid';
+        dom.imageBadge.className = 'badge good';
+        setStatus(dom.profileState, 'Profile image normalized successfully', 'good');
+      } catch (error) {
+        dom.imageBadge.textContent = 'Invalid';
+        dom.imageBadge.className = 'badge danger';
+        setStatus(dom.profileState, error?.message || 'Image validation failed', 'danger');
+      }
+    }
+
+    async function buildProfileTransactionPlan() {
+      if (!state.internalPrivKeyBytes || !state.walletSession.address) throw new Error('Unlock the wallet first');
+      const urn = normalize(dom.proUrn.value);
+      if (!urn) throw new Error('A handle/URN is required');
+      if (!state.handleCheck || state.handleCheck.urn !== urn || !state.handleCheck.available) throw new Error('Check handle availability before broadcasting');
+      const profileJson = {};
+      const urls = collectPairValues(dom.urlPairs);
+      const loc = collectPairValues(dom.locPairs);
+      const current = state.currentProfile;
+      profileJson.urn = urn;
+      if (normalize(dom.proFnm.value)) profileJson.fnm = normalize(dom.proFnm.value);
+      if (normalize(dom.proMnm.value)) profileJson.mnm = normalize(dom.proMnm.value);
+      if (normalize(dom.proLnm.value)) profileJson.lnm = normalize(dom.proLnm.value);
+      if (normalize(dom.proSfx.value)) profileJson.sfx = normalize(dom.proSfx.value);
+      if (normalize(dom.proBio.value)) profileJson.bio = normalize(dom.proBio.value);
+      if (normalize(dom.proImg.value)) profileJson.img = state.normalizedProfileImage || normalize(dom.proImg.value);
+      if (Object.keys(urls).length) profileJson.url = urls;
+      if (Object.keys(loc).length) profileJson.loc = loc;
+      profileJson.cre = ['0'];
+      if (dom.proEnableSec.checked) {
+        const { x, y } = secPrivToPoint(state.internalPrivKeyBytes);
+        profileJson.pkx = x.toString(16);
+        profileJson.pky = y.toString(16);
+      } else if (current?.pkx || current?.pky) {
+        profileJson.pkx = '';
+        profileJson.pky = '';
+      }
+      const json = JSON.stringify(profileJson);
+      const delimiter = pickRandomDelimiter();
+      const unsignedBody = `PRO${delimiter}${utf8ByteLength(json)}${delimiter}${json}`;
+      const signatureInput = (await sha256HexFromText(unsignedBody)).toUpperCase();
+      const signature = await signWithWallet(signatureInput);
+      const payload = `SIG${delimiter}${P2FK_SIGNATURE_VERSION_MARKER}${delimiter}${signature}${unsignedBody}`;
+      const encodedRecipients = await encodeP2fkAddresses(payload);
+      const recipientSet = new Set(encodedRecipients);
+      recipientSet.add(await getPublicAddressByKeywordLocal(urn));
+      recipientSet.add(state.walletSession.address);
+      const outputs = [...recipientSet].map((address) => ({ address, amount: COMPOSER_AMOUNT_PER_RECIPIENT }));
+      return { profileJson, json, unsignedBody, payload, outputs, cost: outputs.length * COMPOSER_AMOUNT_PER_RECIPIENT };
+    }
+
+    async function estimateProfileTransaction() {
+      try {
+        const plan = await buildProfileTransactionPlan();
+        dom.profilePreview.textContent = JSON.stringify(plan, null, 2);
+        setStatus(dom.profileState, `${plural(plan.outputs.length, 'output')} · ${(plan.cost).toFixed(8)} tBTC + miner fee`, 'good');
+      } catch (error) {
+        setStatus(dom.profileState, error?.message || 'Could not build PRO transaction', 'danger');
+      }
+    }
+
+    async function broadcastProfileTransaction() {
+      try {
+        const plan = await buildProfileTransactionPlan();
+        dom.profilePreview.textContent = JSON.stringify(plan, null, 2);
+        setStatus(dom.profileState, `Broadcasting ${plan.outputs.length} PRO outputs…`);
+        const txid = await buildAndBroadcastInternalTx(plan.outputs);
+        setStatus(dom.profileState, `Profile broadcast: ${txid}`, 'good');
+        await loadOwnProfileIntoEditor();
+      } catch (error) {
+        setStatus(dom.profileState, error?.message || 'Profile broadcast failed', 'danger');
+      }
+    }
+
+    function renderComposerAttachments() {
+      clearChildren(dom.attachmentList);
+      state.composerAttachments.forEach((token) => {
+        const row = document.createElement('div');
+        row.className = 'card';
+        const controls = document.createElement('div');
+        controls.className = 'row';
+        controls.innerHTML = `<div class="address">${escapeHtml(token)}</div>`;
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'danger';
+        remove.textContent = 'Remove';
+        remove.addEventListener('click', () => {
+          state.composerAttachments = state.composerAttachments.filter((item) => item !== token);
+          renderComposerAttachments();
+        });
+        row.appendChild(controls);
+        row.appendChild(renderAttachmentToken(token));
+        row.appendChild(remove);
+        dom.attachmentList.appendChild(row);
+      });
+    }
+
+    async function onAddAttachment() {
+      try {
+        const normalized = await normalizeAttachmentReference(dom.msgAttachmentInput.value);
+        if (!state.composerAttachments.includes(normalized.canonical)) state.composerAttachments.push(normalized.canonical);
+        dom.msgAttachmentInput.value = normalized.canonical;
+        setStatus(dom.attachmentState, `Attachment normalized: ${normalized.canonical}`, 'good');
+        renderComposerAttachments();
+      } catch (error) {
+        setStatus(dom.attachmentState, error?.message || 'Attachment validation failed', 'danger');
+      }
+    }
+
+    async function resolveMessageRecipients() {
+      const recipients = new Set();
+      const manual = parseManualRecipients(dom.msgRecipients.value);
+      for (const token of manual) {
+        if (isAddress(token)) recipients.add(token);
+        else if (token.startsWith('@')) {
+          const profile = await fetchProfileByURN(token.slice(1));
+          if (profile?.address) recipients.add(profile.address);
+        }
+      }
+      const mentions = [...sanitizeP2fkMessageText(dom.msgBody.value).matchAll(MENTION_REGEX)].map((match) => match[1]);
+      for (const mention of mentions) {
+        const profile = await fetchProfileByURN(mention);
+        if (profile?.address) recipients.add(profile.address);
+      }
+      return [...recipients];
+    }
+
+    function buildMessageText() {
+      let text = sanitizeP2fkMessageText(dom.msgBody.value);
+      const commentTxid = normalize(dom.msgCommentTxid.value);
+      if (commentTxid) {
+        if (!TXID_ONLY_REGEX.test(commentTxid)) throw new Error('Comment txid must be a 64-char hex transaction id');
+        text = `<<${commentTxid.toLowerCase()}>>${text}`;
+      }
+      const question = normalize(dom.pollQuestion.value);
+      const options = normalize(dom.pollOptions.value).split('|').map((option) => option.trim()).filter(Boolean);
+      if (question) {
+        const pollBlock = ['Poll: ' + question, ...options.map((option) => `- ${option}`)].join('\n');
+        text = `${text}${text ? '\n\n' : ''}${pollBlock}`;
+      }
+      return text;
+    }
+
+    async function buildMessageTransactionPlan() {
+      if (!state.walletSession.address) throw new Error('Unlock your wallet first');
+      const messageText = buildMessageText();
+      if (!normalize(messageText)) throw new Error('Write a message, comment, or poll first');
+      const extraRecipients = await resolveMessageRecipients();
+      const plan = await buildP2fkRecipientsAndCost({
+        messageText,
+        attachments: state.composerAttachments,
+        extraRecipients,
+        fromAddress: state.walletSession.address,
+        amountPerRecipient: COMPOSER_AMOUNT_PER_RECIPIENT
+      });
+      return { ...plan, messageText, extraRecipients };
+    }
+
+    async function estimateMessageTransaction() {
+      try {
+        const plan = await buildMessageTransactionPlan();
+        dom.messagePreview.textContent = JSON.stringify(plan, null, 2);
+        setStatus(dom.messageState, `${plural(plan.outputs.length, 'output')} · ${(plan.cost).toFixed(8)} tBTC + miner fee`, 'good');
+      } catch (error) {
+        setStatus(dom.messageState, error?.message || 'Could not build message transaction', 'danger');
+      }
+    }
+
+    async function broadcastMessageTransaction() {
+      try {
+        const plan = await buildMessageTransactionPlan();
+        dom.messagePreview.textContent = JSON.stringify(plan, null, 2);
+        setStatus(dom.messageState, `Broadcasting ${plan.outputs.length} outputs…`);
+        const txid = await buildAndBroadcastInternalTx(plan.outputs);
+        setStatus(dom.messageState, `Message broadcast: ${txid}`, 'good');
+        dom.msgBody.value = '';
+        dom.msgCommentTxid.value = '';
+        dom.pollQuestion.value = '';
+        dom.pollOptions.value = '';
+        state.composerAttachments = [];
+        renderComposerAttachments();
+      } catch (error) {
+        setStatus(dom.messageState, error?.message || 'Message broadcast failed', 'danger');
+      }
+    }
+
+    function buildProfileCard(profile, official) {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `
+        <div class="profile-head">
+          <img src="${escapeHtml(buildProfileImageUrl(profile.image))}" alt="${escapeHtml(profile.displayName)} avatar" onerror="this.src='${fallbackAvatar}'">
+          <div class="stack">
+            <div><strong>${escapeHtml(profile.displayName)}</strong> ${profile.urn ? `<span class="badge">@${escapeHtml(profile.urn)}</span>` : ''} <span class="badge ${official ? 'good' : 'danger'}">${official ? 'Official handle' : 'Unofficial handle'}</span></div>
+            <div class="profile-summary-meta">
+              <span class="badge">${escapeHtml(shortAddress(profile.address))}</span>
+              ${profile.createdDate ? `<span class="badge">Created ${escapeHtml(formatDate(profile.createdDate))}</span>` : ''}
+              ${profile.changedDate ? `<span class="badge">Updated ${escapeHtml(formatDate(profile.changedDate))}</span>` : ''}
+            </div>
+            <div>${escapeHtml(profile.bio || 'No bio yet.')}</div>
+          </div>
+        </div>
+      `;
+      if (Object.keys(profile.urls || {}).length) {
+        const linkBox = document.createElement('div');
+        linkBox.className = 'link-list';
+        Object.entries(profile.urls).forEach(([key, value]) => {
+          const item = document.createElement('a');
+          item.href = value;
+          item.target = '_blank';
+          item.rel = 'noopener';
+          item.textContent = `${key}: ${value}`;
+          linkBox.appendChild(item);
+        });
+        card.appendChild(linkBox);
+      }
+      if (Object.keys(profile.loc || {}).length) {
+        const pills = document.createElement('div');
+        pills.className = 'pill-list';
+        Object.entries(profile.loc).forEach(([key, value]) => {
+          const span = document.createElement('span');
+          span.className = 'pill';
+          span.textContent = `${key}: ${value}`;
+          pills.appendChild(span);
+        });
+        card.appendChild(pills);
+      }
+      return card;
+    }
+
+    function renderMessageCard(root, { threaded = false } = {}) {
+      const card = document.createElement('div');
+      card.className = threaded ? 'thread-item' : 'message-card';
+      const meta = document.createElement('div');
+      meta.className = 'message-meta';
+      meta.innerHTML = [
+        root.fromAddress ? `<span class="badge">${escapeHtml(shortAddress(root.fromAddress))}</span>` : '<span class="badge">Unsigned?</span>',
+        root.txId ? `<span class="badge">tx ${escapeHtml(shortAddress(root.txId))}</span>` : '',
+        root.blockDate ? `<span class="badge">${escapeHtml(formatDate(root.blockDate))}</span>` : '',
+        typeof root.confirmations === 'number' ? `<span class="badge">${root.confirmations} conf</span>` : ''
+      ].join('');
+      card.appendChild(meta);
+      const body = document.createElement('div');
+      body.className = 'message-body';
+      parseMessage(root.message).then((parsed) => {
+        body.innerHTML = annotateMessageBody(parsed.cleanMessage || '(attachment-only message)');
+        const attachmentBox = document.createElement('div');
+        attachmentBox.className = 'message-attachments attachment-list';
+        const combined = [...parsed.attachments, ...root.files.map((file) => `${root.txId}/${file}`), ...parsed.links];
+        combined.forEach((token) => attachmentBox.appendChild(renderAttachmentToken(token)));
+        if (combined.length) card.appendChild(attachmentBox);
+      }).catch(() => {
+        body.textContent = root.message || '(empty)';
+      });
+      card.appendChild(body);
+      if (root.txId && !threaded) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'secondary';
+        button.textContent = 'Load thread';
+        const thread = document.createElement('div');
+        thread.className = 'message-thread';
+        button.addEventListener('click', async () => {
+          button.disabled = true;
+          button.textContent = 'Loading…';
+          try {
+            await loadThread(root.txId, thread);
+            button.textContent = 'Reload thread';
+          } catch (error) {
+            thread.innerHTML = `<div class="status danger">${escapeHtml(error?.message || 'Could not load thread')}</div>`;
+            button.textContent = 'Retry thread';
+          } finally {
+            button.disabled = false;
+          }
+        });
+        card.appendChild(button);
+        card.appendChild(thread);
+      }
+      return card;
+    }
+
+    function classifyThreadActions(message) {
+      const decoded = String(message ?? '').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+      const refs = [...decoded.matchAll(/<<([^>]+)>>/g)].map((match) => match[1].trim());
+      const remainingText = decoded.replace(/<<[^>]+>>/g, '').trim();
+      const isAttachmentRef = (ref) => /^IPFS:/i.test(ref) || /^[0-9a-fA-F]{64}[\\/]/.test(ref) || /^(BTC|LTC|DOG|MZC):[0-9a-fA-F]{64}[\\/]/i.test(ref) || /^https?:\/\//i.test(ref);
+      const hasTxidRef = refs.some((ref) => TXID_ONLY_REGEX.test(ref));
+      const hasAttachment = refs.some((ref) => !TXID_ONLY_REGEX.test(ref) && isAttachmentRef(ref));
+      const hasSalt = refs.some((ref) => !TXID_ONLY_REGEX.test(ref) && !isAttachmentRef(ref));
+      const hasText = remainingText.length > 0;
+      const actions = [];
+      if (hasText || hasAttachment) actions.push('comment');
+      if (hasTxidRef) actions.push('retweet');
+      if (hasSalt && ((!hasText && !hasAttachment) || hasTxidRef)) actions.push('like');
+      return actions.length ? actions : ['comment'];
+    }
+
+    async function loadThread(txid, container) {
+      clearChildren(container);
+      if (state.threadDataCache.has(txid)) {
+        state.threadDataCache.get(txid).forEach((root) => container.appendChild(renderMessageCard(root, { threaded: true })));
+        return;
+      }
+      const address = await resolveKeywordAddress(txid);
+      if (!address) throw new Error('Could not resolve thread address');
+      const data = await fetchJson(`${API_BASE}/GetPublicMessagesByAddress/${encodeURIComponent(address)}?mainnet=false&skip=0&qty=50`, 30000);
+      const items = (Array.isArray(data) ? data : []).map((item) => normalizeRoot(item.Root || item.root || item)).filter(Boolean).filter((item) => item.txId && item.txId !== txid.toLowerCase());
+      const entries = items.map((item) => ({ root: item, actions: classifyThreadActions(item.message) }));
+      state.threadDataCache.set(txid, entries.map((entry) => entry.root));
+      if (!entries.length) {
+        container.innerHTML = '<div class="status">No replies found for this txid yet.</div>';
+        return;
+      }
+      const summary = document.createElement('div');
+      summary.className = 'mini';
+      const totals = { comment: 0, retweet: 0, like: 0 };
+      entries.forEach((entry) => entry.actions.forEach((action) => { totals[action] += 1; }));
+      summary.textContent = `${plural(totals.comment, 'comment')} · ${plural(totals.retweet, 'retweet')} · ${plural(totals.like, 'like')}`;
+      container.appendChild(summary);
+      entries.forEach((entry) => container.appendChild(renderMessageCard(entry.root, { threaded: true })));
+    }
+
+    async function renderProfileDetail(profile) {
+      clearChildren(dom.detailView);
+      const official = await isOfficialProfile(profile);
+      state.currentProfileOfficial = official;
+      dom.detailView.appendChild(buildProfileCard(profile, official));
+      if (profileBelongsToUnlockedWallet(profile)) {
+        populateProfileEditor(profile);
+        setStatus(dom.profileState, 'Editing your unlocked profile', 'good');
+      }
+      const feedWrap = document.createElement('div');
+      feedWrap.className = 'stack';
+      const heading = document.createElement('h3');
+      heading.textContent = 'Recent public messages';
+      feedWrap.appendChild(heading);
+      try {
+        const payload = await fetchJson(`${API_BASE}/GetPublicMessagesByAddress/${encodeURIComponent(profile.address)}?mainnet=false&skip=0&qty=25`, 30000);
+        const items = (Array.isArray(payload) ? payload : []).map((item) => normalizeRoot(item.Root || item.root || item)).filter(Boolean);
+        if (!items.length) {
+          const empty = document.createElement('div');
+          empty.className = 'status';
+          empty.textContent = 'No public messages found for this profile yet.';
+          feedWrap.appendChild(empty);
+        } else {
+          items.forEach((item) => feedWrap.appendChild(renderMessageCard(item)));
+        }
+      } catch (error) {
+        const failed = document.createElement('div');
+        failed.className = 'status danger';
+        failed.textContent = `Could not load messages: ${error?.message || 'network error'}`;
+        feedWrap.appendChild(failed);
+      }
+      dom.detailView.appendChild(feedWrap);
+    }
+
+    async function renderTxidDetail(txid) {
+      clearChildren(dom.detailView);
+      const wrap = document.createElement('div');
+      wrap.className = 'stack';
+      try {
+        const payload = await fetchJson(`${API_BASE}/GetRootByTransactionID/${encodeURIComponent(txid)}?mainnet=false&verbose=false`, 20000);
+        const root = normalizeRoot(Array.isArray(payload) ? payload[0] : payload);
+        if (!root) throw new Error('Message not found');
+        wrap.appendChild(renderMessageCard(root));
+      } catch (error) {
+        wrap.innerHTML = `<div class="status danger">${escapeHtml(error?.message || 'Could not load transaction')}</div>`;
+      }
+      dom.detailView.appendChild(wrap);
+    }
+
+    async function runSearch() {
+      const query = normalize(dom.searchInput.value);
+      if (!query) return setStatus(dom.searchState, 'Enter a handle, keyword, address, txid, or text query', 'warn');
+      clearChildren(dom.searchResults);
+      clearChildren(dom.detailView);
+      setStatus(dom.searchState, 'Searching…');
+      try {
+        if (query.startsWith('@')) {
+          const profile = await fetchProfileByURN(query.slice(1));
+          if (!profile) throw new Error('Profile not found');
+          const official = await isOfficialProfile(profile);
+          dom.searchResults.appendChild(buildProfileCard(profile, official));
+          await renderProfileDetail(profile);
+          return setStatus(dom.searchState, `Loaded @${profile.urn || query.slice(1)}`, 'good');
+        }
+        if (isAddress(query)) {
+          const profile = await fetchProfileByAddress(query);
+          if (profile) {
+            const official = await isOfficialProfile(profile);
+            dom.searchResults.appendChild(buildProfileCard(profile, official));
+            await renderProfileDetail(profile);
+            return setStatus(dom.searchState, `Loaded profile ${query}`, 'good');
+          }
+        }
+        if (TXID_ONLY_REGEX.test(query)) {
+          await renderTxidDetail(query.toLowerCase());
+          return setStatus(dom.searchState, `Loaded transaction ${query}`, 'good');
+        }
+        if (query.startsWith('#')) {
+          const address = await resolveKeywordAddress(query.slice(1));
+          const payload = await fetchJson(`${API_BASE}/GetPublicMessagesByAddress/${encodeURIComponent(address)}?mainnet=false&skip=0&qty=25`, 30000);
+          const items = (Array.isArray(payload) ? payload : []).map((item) => normalizeRoot(item.Root || item.root || item)).filter(Boolean);
+          const summary = document.createElement('div');
+          summary.className = 'card';
+          summary.innerHTML = `<div><strong>${escapeHtml(query)}</strong></div><div class="mini address">Keyword address ${escapeHtml(address)}</div>`;
+          dom.searchResults.appendChild(summary);
+          items.forEach((item) => dom.searchResults.appendChild(renderMessageCard(item)));
+          return setStatus(dom.searchState, `Loaded ${plural(items.length, 'message')} for ${query}`, 'good');
+        }
+        const [profilesRaw, rootsRaw] = await Promise.all([
+          fetchJson(`${API_BASE}/GetKnownProfilesBySearchString?searchString=${encodeURIComponent(query)}&qty=8&skip=0&mainnet=false`, 30000).catch(() => []),
+          fetchJson(`${API_BASE}/GetKnownRootsBySearchString?searchString=${encodeURIComponent(query)}&qty=12&skip=0&mainnet=false&showSystemFiles=false`, 30000).catch(() => [])
+        ]);
+        const profiles = (Array.isArray(profilesRaw) ? profilesRaw : []).map((item) => normalizeProfile(item, item._address || item.Address || '')).filter(Boolean);
+        const roots = (Array.isArray(rootsRaw) ? rootsRaw : []).map((item) => normalizeRoot(item.Root || item.root || item)).filter(Boolean);
+        profiles.forEach(async (profile) => dom.searchResults.appendChild(buildProfileCard(profile, await isOfficialProfile(profile))));
+        roots.forEach((root) => dom.searchResults.appendChild(renderMessageCard(root)));
+        if (!profiles.length && !roots.length) throw new Error('No matching profiles or messages found');
+        setStatus(dom.searchState, `Found ${profiles.length} profiles and ${roots.length} messages`, 'good');
+      } catch (error) {
+        setStatus(dom.searchState, error?.message || 'Search failed', 'danger');
+      }
+    }
+
+    dom.walletGenerate.addEventListener('click', onGenerateNewKey);
+    dom.walletImport.addEventListener('click', onImportWallet);
+    dom.walletUnlock.addEventListener('click', onUnlockWallet);
+    dom.walletExport.addEventListener('click', onExportWallet);
+    dom.walletLock.addEventListener('click', onLockWallet);
+    dom.walletForget.addEventListener('click', onForgetWallet);
+    dom.searchButton.addEventListener('click', runSearch);
+    dom.searchInput.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); runSearch(); } });
+    dom.addUrlPair.addEventListener('click', () => renderKvRow(dom.urlPairs, 'url'));
+    dom.addLocPair.addEventListener('click', () => renderKvRow(dom.locPairs, 'loc'));
+    dom.checkHandle.addEventListener('click', checkHandleAvailability);
+    dom.checkImage.addEventListener('click', validateProfileImage);
+    dom.estimateProfile.addEventListener('click', estimateProfileTransaction);
+    dom.broadcastProfile.addEventListener('click', broadcastProfileTransaction);
+    dom.proLoadOwn.addEventListener('click', loadOwnProfileIntoEditor);
+    dom.addAttachment.addEventListener('click', onAddAttachment);
+    dom.estimateMessage.addEventListener('click', estimateMessageTransaction);
+    dom.broadcastMessage.addEventListener('click', broadcastMessageTransaction);
+
+    renderKvRow(dom.urlPairs, 'url');
+    renderKvRow(dom.locPairs, 'loc');
+    refreshWalletUi();
+
+    window.SupSpace = {
+      normalizeAttachmentReference,
+      buildProfileTransactionPlan,
+      buildMessageTransactionPlan,
+      classifyThreadActions,
+      normalizeRoot,
+      parseMessage,
+      resolveKeywordAddress,
+      getPublicAddressByKeywordLocal,
+      loadThread
+    };
+  })();
+  </script>
+</body>
+</html>
