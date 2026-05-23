@@ -431,8 +431,8 @@
   <div class="modal">
     <div class="modal-hdr">
       <button class="modal-x" onclick="closeModal('modalProfileEdit')">✕</button>
-      <span class="modal-title">Edit Profile</span>
-      <button class="btn btn-pri btn-sm" style="margin-left:auto;" onclick="broadcastProfileTx()">Save</button>
+      <span class="modal-title" id="peModalTitle">Claim New User</span>
+      <button class="btn btn-pri btn-sm" id="peSaveBtn" style="margin-left:auto;" onclick="broadcastProfileTx()">Claim</button>
     </div>
     <div class="modal-body">
       <div id="peStatus" class="f-status info hidden"></div>
@@ -446,42 +446,47 @@
           <span class="chip" id="peHandleBadge">Unchecked</span>
         </div>
       </div>
-      <div class="f-row">
-        <div class="f-field"><label class="f-label">First name</label><input class="f-input" id="peFnm" autocomplete="off"></div>
-        <div class="f-field"><label class="f-label">Last name</label><input class="f-input" id="peLnm" autocomplete="off"></div>
-      </div>
-      <div class="f-row">
-        <div class="f-field"><label class="f-label">Middle name</label><input class="f-input" id="peMnm" autocomplete="off"></div>
-        <div class="f-field"><label class="f-label">Suffix</label><input class="f-input" id="peSfx" autocomplete="off"></div>
-      </div>
       <div class="f-field"><label class="f-label">Bio</label><textarea class="f-input" id="peBio" placeholder="Tell the world…"></textarea></div>
       <div class="f-field">
         <label class="f-label">Profile image</label>
         <div style="display:flex;gap:8px;align-items:center;">
-          <input class="f-input" id="peImg" placeholder="IPFS:cid/img.png · txid/img.png · https://…" style="flex:1;" autocomplete="off">
+          <input class="f-input" id="peImg" placeholder="IPFS:cid/img.png · txid/img.png · https://…" style="flex:1;" autocomplete="off" oninput="onProfileImageInput()">
           <button class="btn btn-out btn-sm" onclick="validateProfileImage()">Validate</button>
         </div>
         <div id="peImgPreview" class="hidden" style="margin-top:8px;display:flex;align-items:center;gap:12px;">
           <img id="peImgPreviewImg" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid var(--border);" alt="Preview">
-          <span class="chip good" id="peImgBadge">Valid</span>
+          <span class="chip" id="peImgBadge">Unchecked</span>
         </div>
       </div>
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
-        <input type="checkbox" id="peEnableSec" style="width:18px;height:18px;accent-color:var(--accent);">
-        <label for="peEnableSec" style="font-size:.9rem;cursor:pointer;">Publish EC public keys (enables private messaging)</label>
+      <div style="margin-bottom:10px;">
+        <button class="tiny-link-btn" onclick="toggleProfileDetails()" id="peDetailsToggle">Show more details</button>
       </div>
-      <hr class="divider">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <span style="font-weight:700;">Links</span>
-        <button class="btn btn-out btn-sm" onclick="addKvRow('peUrlPairs','url')">+ Add</button>
+      <div id="peMoreDetails" class="hidden">
+        <div class="f-row">
+          <div class="f-field"><label class="f-label">First name</label><input class="f-input" id="peFnm" autocomplete="off"></div>
+          <div class="f-field"><label class="f-label">Last name</label><input class="f-input" id="peLnm" autocomplete="off"></div>
+        </div>
+        <div class="f-row">
+          <div class="f-field"><label class="f-label">Middle initial / name</label><input class="f-input" id="peMnm" autocomplete="off"></div>
+          <div class="f-field"><label class="f-label">Suffix</label><input class="f-input" id="peSfx" autocomplete="off"></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+          <input type="checkbox" id="peEnableSec" style="width:18px;height:18px;accent-color:var(--accent);">
+          <label for="peEnableSec" style="font-size:.9rem;cursor:pointer;">Publish EC public keys (enables private messaging)</label>
+        </div>
+        <hr class="divider">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-weight:700;">Links</span>
+          <button class="btn btn-out btn-sm" onclick="addKvRow('peUrlPairs','url')">+ Add</button>
+        </div>
+        <div id="peUrlPairs"></div>
+        <hr class="divider">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <span style="font-weight:700;">Location</span>
+          <button class="btn btn-out btn-sm" onclick="addKvRow('peLocPairs','loc')">+ Add</button>
+        </div>
+        <div id="peLocPairs"></div>
       </div>
-      <div id="peUrlPairs"></div>
-      <hr class="divider">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-        <span style="font-weight:700;">Location</span>
-        <button class="btn btn-out btn-sm" onclick="addKvRow('peLocPairs','loc')">+ Add</button>
-      </div>
-      <div id="peLocPairs"></div>
       <hr class="divider">
       <div class="btn-row">
         <button class="btn btn-out btn-sm" onclick="estimateProfileTx()">Estimate cost</button>
@@ -1510,6 +1515,9 @@ function renderWalletUI(container, balance=null){
   }
   html+=`<div id="walletMsg" class="f-status hidden" style="margin-top:10px;"></div>`;
   container.innerHTML=html;
+  container.querySelector('#wWif')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();importWallet();}});
+  container.querySelector('#wPass')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();importWallet();}});
+  container.querySelector('#wUnlockPass')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();unlockWallet();}});
   if(!locked) refreshBalance();
 }
 async function refreshBalance(){
@@ -1527,7 +1535,27 @@ async function refreshBalance(){
     if(bw) bw.innerHTML=`<span class="balance-chip balance-confirmed">✓ ${(total.confirmed/1e8).toFixed(8)} tBTC confirmed</span><span class="balance-chip balance-unconf">⏳ ${(total.unconfirmed/1e8).toFixed(8)} tBTC unconfirmed</span>${addrLines}`;
   }catch{}
 }
-function walletMsg(msg,kind='info'){const el=$('walletMsg');if(el)showStatus(el,msg,kind);}
+function activeWalletContainer(preferEl=null){
+  if(preferEl){
+    const parent=preferEl.closest('#walletModalBody, #walletViewBody');
+    if(parent) return parent;
+  }
+  const wm=$('modalWallet');
+  if(wm&&!wm.classList.contains('hidden')){
+    const body=$('walletModalBody');
+    if(body) return body;
+  }
+  return $('walletViewBody')||$('walletModalBody');
+}
+function walletField(id,preferEl=null){
+  const container=activeWalletContainer(preferEl);
+  return container?.querySelector(`#${id}`)||document.querySelector(`#${id}`);
+}
+function walletMsg(msg,kind='info',preferEl=null){
+  const container=activeWalletContainer(preferEl);
+  const el=container?.querySelector('#walletMsg')||$('walletMsg');
+  if(el) showStatus(el,msg,kind);
+}
 
 function updateWalletMini(){
   const mini=$('walletMini');
@@ -1581,12 +1609,13 @@ async function generateKey(){
       wif=await priv2wif(pb);addr=await priv2addr(pb);
     }while(attempts<64&&(!wif||!addr||hasBadPair(wif)||hasBadPair(addr)));
     if(!wif) throw new Error('Try again');
-    const el=$('wWif');if(el) el.value=wif;
+    const el=walletField('wWif');if(el) el.value=wif;
     walletMsg(`Generated ${addr}. Set a password and click Import + unlock.`,'good');
   }catch(e){walletMsg(e.message||'Failed','danger');}
 }
 async function importWallet(){
-  const wif=norm(($('wWif')||{}).value||''),pass=norm(($('wPass')||{}).value||'');
+  const wifEl=walletField('wWif'),passEl=walletField('wPass');
+  const wif=norm((wifEl||{}).value||''),pass=norm((passEl||{}).value||'');
   if(!wif) return walletMsg('Enter a testnet3 WIF key','warn');
   if(pass.length<WALLET_MIN_PASS) return walletMsg(`Password must be ≥ ${WALLET_MIN_PASS} chars`,'warn');
   walletMsg('Encrypting…');
@@ -1596,13 +1625,14 @@ async function importWallet(){
     const enc=await encryptPriv(pb,pass);
     localStorage.setItem(WALLET_KEY,JSON.stringify(enc));
     S.priv=pb;S.addr=addr;
-    const ww=$('wWif'),wp=$('wPass');if(ww)ww.value='';if(wp)wp.value='';
+    if(wifEl)wifEl.value='';if(passEl)passEl.value='';
     walletMsg(`Unlocked: ${addr}`,'good');
     await afterUnlock();
   }catch(e){walletMsg(e.message||'Import failed','danger');}
 }
 async function unlockWallet(){
-  const pass=norm(($('wUnlockPass')||{}).value||'');
+  const passEl=walletField('wUnlockPass');
+  const pass=norm((passEl||{}).value||'');
   if(!pass) return walletMsg('Enter password','warn');
   walletMsg('Unlocking…');
   try{
@@ -1611,7 +1641,7 @@ async function unlockWallet(){
     const pb=await decryptPriv(stored,pass);
     const addr=await priv2addr(pb);
     S.priv=pb;S.addr=addr;
-    const wu=$('wUnlockPass');if(wu)wu.value='';
+    if(passEl)passEl.value='';
     walletMsg(`Unlocked: ${addr}`,'good');
     await afterUnlock();
   }catch(e){walletMsg(e.message||'Unlock failed','danger');}
@@ -1671,8 +1701,24 @@ function populateProfileEditor(p){
   S.normalizedImg=p?.image||'';
   S.handleCheck=null;
   setChip($('peHandleBadge'),'Unchecked');
-  const hidePreview=()=>{const d=$('peImgPreview');if(d)d.classList.add('hidden');};
-  hidePreview();
+  setChip($('peImgBadge'),p?.image?'Valid':'Unchecked',p?.image?'good':'');
+  const details=$('peMoreDetails'),toggle=$('peDetailsToggle');
+  if(details) details.classList.add('hidden');
+  if(toggle) toggle.textContent='Show more details';
+  const hasExistingProfile=Boolean(p?.addr||p?.urn||p?.bio||p?.image||p?.firstName||p?.lastName);
+  const title=$('peModalTitle'),saveBtn=$('peSaveBtn');
+  if(title) title.textContent=hasExistingProfile?'Edit Profile':'Claim New User';
+  if(saveBtn) saveBtn.textContent=hasExistingProfile?'Save':'Claim';
+  const prevWrap=$('peImgPreview'),prevImg=$('peImgPreviewImg');
+  const cands=profileImgCandidates(p?.image||'');
+  if(prevWrap&&prevImg&&cands.length){
+    prevWrap.classList.remove('hidden');
+    prevImg.src=cands[0];
+    prevImg.dataset.cands=JSON.stringify([...cands.slice(1),FALLBACK_AVI]);
+    prevImg.onerror=()=>window.pi_err(prevImg);
+  }else if(prevWrap){
+    prevWrap.classList.add('hidden');
+  }
   const ul=$('peUrlPairs'),ll=$('peLocPairs');
   if(ul){clr(ul);Object.entries(p?.urls||{}).forEach(([k,v])=>{addKvRow('peUrlPairs','url');const r=ul.lastElementChild;r.querySelector('[data-role="key"]').value=k;r.querySelector('[data-role="value"]').value=v;});if(!ul.children.length)addKvRow('peUrlPairs','url');}
   if(ll){clr(ll);Object.entries(p?.loc||{}).forEach(([k,v])=>{addKvRow('peLocPairs','loc');const r=ll.lastElementChild;r.querySelector('[data-role="key"]').value=k;r.querySelector('[data-role="value"]').value=v;});if(!ll.children.length)addKvRow('peLocPairs','loc');}
@@ -1692,12 +1738,26 @@ async function checkProfileHandle(){
 async function validateProfileImage(){
   const st=$('peStatus');
   try{
-    const norm_=await normalizeAttach($('peImg')?.value||'',{imgOnly:true});
+    const raw=norm($('peImg')?.value||'');
+    if(!raw){
+      S.normalizedImg='';
+      const prev=$('peImgPreview');
+      if(prev) prev.classList.add('hidden');
+      setChip($('peImgBadge'),'Unchecked');
+      showStatus(st,'Image cleared (optional field).','info');
+      return;
+    }
+    const norm_=await normalizeAttach(raw,{imgOnly:true});
     S.normalizedImg=norm_.canonical;
     const el=$('peImg');if(el)el.value=norm_.canonical;
     const prev=$('peImgPreview'),img=$('peImgPreviewImg');
     if(prev)prev.classList.remove('hidden');
-    if(img)img.src=norm_.preview||norm_.canonical;
+    if(img){
+      const cands=profileImgCandidates(norm_.canonical);
+      img.src=cands[0]||norm_.preview||norm_.canonical;
+      img.dataset.cands=JSON.stringify([...cands.slice(1),FALLBACK_AVI]);
+      img.onerror=()=>window.pi_err(img);
+    }
     setChip($('peImgBadge'),'Valid','good');
     showStatus(st,'Image validated','good');
   }catch(e){setChip($('peImgBadge'),'Invalid','danger');showStatus(st,e.message||'Image validation failed','danger');}
@@ -1715,10 +1775,20 @@ async function buildProTxPlan(){
   const urn=norm($('peUrn')?.value||'');
   if(!urn) throw new Error('Handle is required');
   if(!S.handleCheck||S.handleCheck.urn!==urn||!S.handleCheck.ok) throw new Error('Check handle availability first');
+  const rawImg=norm($('peImg')?.value||'');
+  let img='';
+  if(rawImg){
+    const normImg=await normalizeAttach(rawImg,{imgOnly:true});
+    img=normImg.canonical;
+    S.normalizedImg=img;
+    const el=$('peImg');if(el) el.value=img;
+  }else{
+    S.normalizedImg='';
+  }
   return buildProOutputs({
     urn,
     fnm:norm($('peFnm')?.value||''),mnm:norm($('peMnm')?.value||''),lnm:norm($('peLnm')?.value||''),sfx:norm($('peSfx')?.value||''),
-    bio:norm($('peBio')?.value||''),img:S.normalizedImg||norm($('peImg')?.value||''),
+    bio:norm($('peBio')?.value||''),img,
     urls:collectKv('peUrlPairs'),loc:collectKv('peLocPairs'),
     enableSec:$('peEnableSec')?.checked||false
   });
@@ -1842,12 +1912,11 @@ function switchView(view){
   document.querySelectorAll('.nav-item').forEach(el=>{el.classList.toggle('active',el.dataset.view===view);});
   S.view=view;
   if(view==='myprofile'){
-    if(!S.addr){
-      const c=$('myProfileContent');
-      if(c) c.innerHTML='<div class="feed-empty">Unlock wallet to claim/edit your profile.<div style="margin-top:12px;"><button class="btn btn-acc btn-sm" onclick="openModal(\'modalWallet\')">Unlock wallet</button> <button class="btn btn-out btn-sm" onclick="openModal(\'modalProfileEdit\')">Claim new user</button></div></div>';
-      openModal('modalWallet');
-      openModal('modalProfileEdit');
-    }else loadMyProfile();
+  if(!S.addr){
+    const c=$('myProfileContent');
+    if(c) c.innerHTML='<div class="feed-empty">Unlock wallet to claim your profile.<div style="margin-top:12px;"><button class="btn btn-acc btn-sm" onclick="openModal(\'modalWallet\')">Unlock wallet</button> <button class="btn btn-out btn-sm" onclick="openModal(\'modalProfileEdit\')">Claim new user</button></div></div>';
+    openModal('modalWallet');
+  }else loadMyProfile();
   }
   if(view==='home'&&!S.feedLoaded) loadHomeFeed();
   if(view==='wallet') renderWalletUI($('walletViewBody'));
@@ -1857,7 +1926,7 @@ function switchView(view){
 
 async function loadMyProfile(){
   const c=$('myProfileContent');if(!c) return;
-  if(!S.addr){c.innerHTML='<div class="feed-empty">Unlock wallet to claim/edit your profile.</div>';return;}
+  if(!S.addr){c.innerHTML='<div class="feed-empty">Unlock wallet to claim your profile.</div>';return;}
   c.innerHTML='<div class="feed-loading"><div class="spinner"></div>Loading…</div>';
   try{
     S.myProfile=await fetchProfileByAddr(S.addr);
@@ -2334,6 +2403,24 @@ window.forgetWallet=forgetWallet;
 window.addKvRow=addKvRow;
 window.checkProfileHandle=checkProfileHandle;
 window.validateProfileImage=validateProfileImage;
+window.onProfileImageInput=function(){
+  const raw=norm($('peImg')?.value||'');
+  if(!raw){
+    S.normalizedImg='';
+    const prev=$('peImgPreview');
+    if(prev) prev.classList.add('hidden');
+    setChip($('peImgBadge'),'Unchecked');
+    return;
+  }
+  setChip($('peImgBadge'),'Unchecked');
+};
+window.toggleProfileDetails=function(){
+  const box=$('peMoreDetails'),btn=$('peDetailsToggle');
+  if(!box||!btn) return;
+  const willShow=box.classList.contains('hidden');
+  box.classList.toggle('hidden');
+  btn.textContent=willShow?'Hide details':'Show more details';
+};
 window.estimateProfileTx=estimateProfileTx;
 window.broadcastProfileTx=broadcastProfileTx;
 window.addComposedAttachment=addComposedAttachment;
@@ -2361,8 +2448,6 @@ window.autoResize=autoResize;
   setSidebarMode('trending');
   // populate profile editor placeholders
   populateProfileEditor(null);
-  addKvRow('peUrlPairs','url');
-  addKvRow('peLocPairs','loc');
 })();
 
 })(); // end IIFE
