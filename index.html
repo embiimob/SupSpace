@@ -131,6 +131,7 @@
     .stat-val{font-weight:700;color:var(--text)}
     .btn-edit-profile{padding:8px 18px;border-radius:9999px;border:1px solid var(--border);background:none;color:var(--text);font-weight:700;font-size:.9rem;transition:background .15s}
     .btn-edit-profile:hover{background:rgba(255,255,255,.08)}
+    .profile-act-row{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
 
     /* ── FEED STATES ── */
     .feed-loading,.feed-empty,.feed-err{padding:40px 16px;text-align:center;color:var(--muted);font-size:.95rem}
@@ -152,6 +153,10 @@
     .trend-cat{font-size:.74rem;color:var(--muted)}
     .trend-kw{font-weight:700;font-size:.93rem}
     .trend-n{font-size:.78rem;color:var(--muted)}
+    .social-item{display:flex;align-items:center;gap:10px;padding:8px 0}
+    .social-item-main{min-width:0;flex:1}
+    .social-item-title{font-weight:700;font-size:.86rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .social-item-sub{font-size:.74rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
     /* ── FAB ── */
     .fab{display:none;position:fixed;bottom:72px;right:16px;width:56px;height:56px;border-radius:50%;background:var(--accent);border:none;color:#fff;font-size:1.5rem;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(0,0,0,.5);z-index:50;transition:background .15s}
@@ -248,6 +253,10 @@
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
         <span class="nav-label">Explore</span>
       </button>
+      <button class="nav-item" data-view="community" id="navCommunity">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        <span class="nav-label">Community</span>
+      </button>
       <button class="nav-item" data-view="myprofile" id="navProfile">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
         <span class="nav-label">Profile</span>
@@ -312,6 +321,14 @@
       <div id="exploreResults"><div class="feed-empty">Search for @handles, #keywords, testnet3 addresses, or txids</div></div>
     </div>
 
+    <!-- COMMUNITY -->
+    <div class="view" id="viewCommunity">
+      <div class="col-header">
+        <div class="col-header-inner"><span class="col-title">Community</span></div>
+      </div>
+      <div id="communityFeed"><div class="feed-loading"><div class="spinner"></div>Loading community feed…</div></div>
+    </div>
+
     <!-- MY PROFILE -->
     <div class="view" id="viewMyprofile">
       <div class="col-header">
@@ -339,12 +356,13 @@
       <input class="r-search-input" id="rSearchInput" placeholder="Search SupSpace" type="search" autocomplete="off">
     </div>
     <div class="sidebar-card">
-      <div class="sidebar-card-title">Trending</div>
+      <div class="sidebar-card-title" id="sidebarListTitle">Trending</div>
+      <div class="btn-row" style="margin-bottom:8px;">
+        <button class="btn btn-out btn-sm" onclick="setSidebarMode('trending')">Trending</button>
+        <button class="btn btn-out btn-sm" onclick="setSidebarMode('follows')">Following</button>
+        <button class="btn btn-out btn-sm" onclick="setSidebarMode('blocked')">Blocked</button>
+      </div>
       <div id="trendingContent"><div class="trend-n">Loading…</div></div>
-    </div>
-    <div class="sidebar-card" id="whoToFollowCard">
-      <div class="sidebar-card-title">Who to follow</div>
-      <div id="whoToFollow"><div class="trend-n">Try searching for someone</div></div>
     </div>
   </aside>
 </div>
@@ -516,6 +534,7 @@ const FEE_DEFAULT = 10;
 const FEE_MIN = 2;
 // !! Must match SupRadio / SupTV exactly !!
 const WALLET_KEY = 'sup_iw_v1';
+const SOCIAL_KEY = 'sup_social_v1';
 const WALLET_MIN_PASS = 12;
 const WALLET_PBKDF2 = 600000;
 const CHANGE_COUNT = 2;
@@ -548,6 +567,10 @@ const S = {
   profileCache: new Map(),
   profileReqCache: new Map(),
   kwCache: new Map(),
+  followed: new Set(),
+  blocked: new Set(),
+  communityCache: {ts:0,posts:[]},
+  sidebarMode: 'trending',
   composeAttachments: [],
   normalizedImg: '',
   handleCheck: null,
@@ -596,6 +619,45 @@ function setChip(el, text, kind='') {
   el.textContent = text;
   el.className = `chip${kind?' '+kind:''}`;
 }
+function socialSnapshot(){
+  return{
+    followed:[...S.followed],
+    blocked:[...S.blocked],
+    communityCache:S.communityCache||{ts:0,posts:[]}
+  };
+}
+function saveSocialState(){
+  try{localStorage.setItem(SOCIAL_KEY,JSON.stringify(socialSnapshot()));}catch{}
+}
+function loadSocialState(){
+  try{
+    const raw=JSON.parse(localStorage.getItem(SOCIAL_KEY)||'null');
+    if(!raw||typeof raw!=='object') return;
+    S.followed=new Set((Array.isArray(raw.followed)?raw.followed:[]).filter(isAddr));
+    S.blocked=new Set((Array.isArray(raw.blocked)?raw.blocked:[]).filter(isAddr));
+    const cc=raw.communityCache||{};
+    S.communityCache={ts:Number(cc.ts||0),posts:Array.isArray(cc.posts)?cc.posts.map(asRoot).filter(Boolean):[]};
+  }catch{}
+}
+function isBlockedAddr(addr){return isAddr(addr)&&S.blocked.has(addr);}
+function blockFilterRows(rows=[]){return rows.filter(r=>!isBlockedAddr(r?.fromAddr));}
+function asRoot(raw){
+  if(!raw||typeof raw!=='object') return null;
+  if(raw.fromAddr&&raw.txId) return{
+    ...raw,
+    txId:norm(raw.txId).toLowerCase(),
+    fromAddr:norm(raw.fromAddr),
+    message:String(raw.message??''),
+    files:Array.isArray(raw.files)?raw.files:[],
+    blockDate:raw.blockDate||''
+  };
+  return normalizeRoot(raw?.Root||raw?.root||raw);
+}
+function setSidebarMode(mode='trending'){
+  S.sidebarMode=mode;
+  renderSidebarList();
+}
+window.setSidebarMode=setSidebarMode;
 
 /* ═══════════════════════════════════════════════════
    SECP256k1 / CRYPTO
@@ -1178,7 +1240,7 @@ async function isOfficial(profile){
 }
 async function fetchMessages(addr,qty=25){
   const r=await fetchJ(`${API_BASE}/GetPublicMessagesByAddress/${encodeURIComponent(addr)}?mainnet=false&skip=0&qty=${qty}`,30000);
-  return(Array.isArray(r)?r:[]).map(item=>normalizeRoot(item.Root||item.root||item)).filter(Boolean);
+  return blockFilterRows((Array.isArray(r)?r:[]).map(item=>normalizeRoot(item.Root||item.root||item)).filter(Boolean));
 }
 async function fetchSingleRoot(txid){
   const r=await fetchJ(`${API_BASE}/GetRootByTransactionID/${encodeURIComponent(txid)}?mainnet=false&verbose=false`,20000);
@@ -1348,6 +1410,8 @@ function buildProfilePageEl(profile, official, posts=[], ownProfile=false, extra
   const wrap=document.createElement('div');
   const imgAttrs=profileImgAttrs(profile.image);
   const postCache={...extraProfileCache,[profile.addr]:profile};
+  const blocked=isBlockedAddr(profile.addr);
+  const followed=S.followed.has(profile.addr);
   const linksHtml=Object.entries(profile.urls||{}).map(([k,v])=>`<a href="${esc(v)}" target="_blank" rel="noopener" style="color:var(--accent);">🔗 ${esc(k)}</a>`).join(' ');
   const locHtml=Object.values(profile.loc||{}).join(', ');
   wrap.innerHTML=`
@@ -1355,7 +1419,10 @@ function buildProfilePageEl(profile, official, posts=[], ownProfile=false, extra
     <div style="position:relative;">
       <div class="profile-avi-wrap"><img class="profile-avi-lg" ${imgAttrs} alt="${esc(profile.displayName)}"></div>
       ${ownProfile?`<div class="profile-top-bar"><button class="btn-edit-profile" onclick="openModal('modalProfileEdit')">Edit profile</button></div>`:
-        `<div class="profile-top-bar"></div>`}
+        `<div class="profile-top-bar"><div class="profile-act-row">
+          <button class="btn btn-sm ${followed?'btn-out':'btn-acc'}" onclick="toggleFollowAddr('${esc(profile.addr)}')">${followed?'Unfollow':'Follow'}</button>
+          <button class="btn btn-sm ${blocked?'btn-out':'btn-dng'}" onclick="toggleBlockAddr('${esc(profile.addr)}')">${blocked?'Unblock':'Block'}</button>
+        </div></div>`}
     </div>
     <div class="profile-info">
       <div class="profile-name">${esc(profile.displayName)}</div>
@@ -1374,8 +1441,9 @@ function buildProfilePageEl(profile, official, posts=[], ownProfile=false, extra
   tabBar.innerHTML=`<button class="tab-btn active">Posts</button>`;
   wrap.appendChild(tabBar);
   const feedWrap=document.createElement('div');
-  if(!posts.length){feedWrap.innerHTML='<div class="feed-empty">No posts yet.</div>';}
-  else{ posts.forEach(p=>{const el=buildTweetEl(p,{profileCache:postCache});feedWrap.appendChild(el);}); }
+  if(blocked){feedWrap.innerHTML='<div class="feed-empty">This address is blocked. Unblock to view content.</div>';}
+  else if(!posts.length){feedWrap.innerHTML='<div class="feed-empty">No posts yet.</div>';}
+  else{ blockFilterRows(posts).forEach(p=>{const el=buildTweetEl(p,{profileCache:postCache});feedWrap.appendChild(el);}); }
   wrap.appendChild(feedWrap);
   return wrap;
 }
@@ -1467,6 +1535,7 @@ async function afterUnlock(){
   if(wvb) renderWalletUI(wvb);
   const wmb=$('walletModalBody');
   if(wmb) renderWalletUI(wmb);
+  renderSidebarList();
   // populate profile editor
   populateProfileEditor(S.myProfile);
   // refresh my profile view if active
@@ -1746,14 +1815,23 @@ function switchView(view){
   if(target) target.classList.add('active');
   document.querySelectorAll('.nav-item').forEach(el=>{el.classList.toggle('active',el.dataset.view===view);});
   S.view=view;
-  if(view==='myprofile') loadMyProfile();
+  if(view==='myprofile'){
+    if(!S.addr){
+      const c=$('myProfileContent');
+      if(c) c.innerHTML='<div class="feed-empty">Unlock wallet to claim/edit your profile.<div style="margin-top:12px;"><button class="btn btn-acc btn-sm" onclick="openModal(\'modalWallet\')">Unlock wallet</button> <button class="btn btn-out btn-sm" onclick="openModal(\'modalProfileEdit\')">Claim new user</button></div></div>';
+      openModal('modalWallet');
+      openModal('modalProfileEdit');
+    }else loadMyProfile();
+  }
   if(view==='home'&&!S.feedLoaded) loadHomeFeed();
   if(view==='wallet') renderWalletUI($('walletViewBody'));
+  if(view==='community') loadCommunityFeed();
+  setSidebarMode(view==='community'?'follows':'trending');
 }
 
 async function loadMyProfile(){
   const c=$('myProfileContent');if(!c) return;
-  if(!S.addr){c.innerHTML='<div class="feed-empty">Unlock your wallet to see your profile.</div>';return;}
+  if(!S.addr){c.innerHTML='<div class="feed-empty">Unlock wallet to claim/edit your profile.</div>';return;}
   c.innerHTML='<div class="feed-loading"><div class="spinner"></div>Loading…</div>';
   try{
     S.myProfile=await fetchProfileByAddr(S.addr);
@@ -1787,26 +1865,8 @@ async function loadHomeFeed(){
     if(S.myProfile) profileCache[S.myProfile.addr]=S.myProfile;
     clr(feed);
     if(!rts.length&&!prs.length){feed.innerHTML='<div class="feed-empty">No posts found. Be the first to post!</div>';return;}
-    // show some profiles in right sidebar
-    const wtf=$('whoToFollow');
-    if(wtf&&prs.length){
-      clr(wtf);
-      prs.slice(0,4).forEach(raw=>{
-        const p=normalizeProfile(raw);
-        if(!p) return;
-        const el=document.createElement('div');
-        el.style.cssText='display:flex;align-items:center;gap:10px;padding:8px 0;cursor:pointer;';
-        el.onclick=()=>openUserProfile(p.urn||p.addr);
-        el.innerHTML=`<img ${profileImgAttrs(p.image)} style="width:40px;height:40px;border-radius:50%;object-fit:cover;background:#222;" alt="">
-          <div style="min-width:0;flex:1;">
-            <div style="font-weight:700;font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(p.displayName)}</div>
-            ${p.urn?`<div style="color:var(--muted);font-size:.78rem;">@${esc(p.urn)}</div>`:''}
-          </div>`;
-        wtf.appendChild(el);
-      });
-    }
     // render roots — unwrap Root wrapper if present (format varies by endpoint)
-    const roots=rts.map(raw=>normalizeRoot(raw?.Root||raw?.root||raw)).filter(Boolean);
+    const roots=blockFilterRows(rts.map(raw=>normalizeRoot(raw?.Root||raw?.root||raw)).filter(Boolean));
     if(!roots.length){feed.innerHTML='<div class="feed-empty">No recent posts found.</div>';return;}
     // Batch-fetch profiles for unique senders so tweet cards show names & avatars
     const senderAddrs=[...new Set(roots.map(r=>r.fromAddr).filter(Boolean))].slice(0,15);
@@ -1819,6 +1879,7 @@ async function loadHomeFeed(){
     });
     // load trending from API (with local fallback)
     loadTrending(roots);
+    renderSidebarList();
   }catch(e){feed.innerHTML=`<div class="feed-err">Could not load feed: ${esc(e.message)}</div>`;}
 }
 
@@ -1832,8 +1893,10 @@ async function loadTrending(rootsFallback=[]){
     const seen=new Set();let rendered=0;
     for(const row of rows){
       const term=norm(row?.searchString||row?.SearchString||row?.keyword||row?.Keyword||'');
-      if(!term||seen.has(term.toLowerCase())) continue;
-      seen.add(term.toLowerCase());
+      const termNorm=term.toLowerCase().replace(/^#/,'');
+      if(!term||seen.has(termNorm)) continue;
+      if(['mp3','mp4'].includes(termNorm)) continue;
+      seen.add(termNorm);
       const results=Number(row?.lastResultCount||row?.ResultCount||row?.resultCount||row?.results||0)||0;
       const searches=Number(row?.successfulSearchCount||row?.SearchCount||row?.searchCount||row?.count||0)||0;
       const el=document.createElement('div');el.className='trend-item';
@@ -1849,7 +1912,7 @@ async function loadTrending(rootsFallback=[]){
   const tagCount=new Map();
   rootsFallback.forEach(r=>{
     const tags=(r.message||'').match(/#([a-zA-Z0-9_-]{2,32})/g)||[];
-    tags.forEach(t=>tagCount.set(t,(tagCount.get(t)||0)+1));
+    tags.forEach(t=>{if(!['#mp3','#mp4'].includes(t.toLowerCase())) tagCount.set(t,(tagCount.get(t)||0)+1);});
   });
   if(!tagCount.size){tc.innerHTML='<div class="trend-n">No trending topics yet</div>';return;}
   clr(tc);
@@ -1860,6 +1923,101 @@ async function loadTrending(rootsFallback=[]){
     tc.appendChild(el);
   });
 }
+
+async function renderSidebarList(){
+  const tc=$('trendingContent'),title=$('sidebarListTitle');
+  if(!tc||!title) return;
+  if(S.sidebarMode==='trending'){title.textContent='Trending';await loadTrending((S.communityCache?.posts||[]).map(asRoot).filter(Boolean));return;}
+  const addrs=S.sidebarMode==='blocked'?[...S.blocked]:[...S.followed];
+  title.textContent=S.sidebarMode==='blocked'?'Blocked addresses':'Following / Friends';
+  clr(tc);
+  if(!addrs.length){
+    tc.innerHTML=`<div class="trend-n">${S.sidebarMode==='blocked'?'No blocked addresses':'No followed addresses yet'}</div>`;
+    return;
+  }
+  const rows=await Promise.all(addrs.map(async addr=>{
+    const p=await fetchProfileByAddr(addr).catch(()=>null);
+    return{addr,p};
+  }));
+  rows.forEach(({addr,p})=>{
+    const el=document.createElement('div');
+    el.className='social-item';
+    el.innerHTML=`
+      <img ${profileImgAttrs(p?.image||'')} style="width:36px;height:36px;border-radius:50%;object-fit:cover;background:#222;" alt="">
+      <div class="social-item-main" onclick="openUserProfile('${esc(p?.urn||addr)}')" style="cursor:pointer;">
+        <div class="social-item-title">${esc(p?.displayName||shortAddr(addr))}</div>
+        <div class="social-item-sub">${esc(p?.urn?`@${p.urn}`:addr)}</div>
+      </div>
+      <button class="btn btn-out btn-sm" onclick="${S.sidebarMode==='blocked'?'toggleBlockAddr':'toggleFollowAddr'}('${esc(addr)}')">${S.sidebarMode==='blocked'?'Unblock':'Remove'}</button>`;
+    tc.appendChild(el);
+  });
+}
+
+async function refreshCommunityCache({force=false}={}){
+  const addrs=[...S.followed].filter(a=>!isBlockedAddr(a));
+  const freshMs=5*60*1000;
+  if(!force&&Date.now()-Number(S.communityCache?.ts||0)<freshMs) return S.communityCache.posts||[];
+  if(!addrs.length){S.communityCache={ts:Date.now(),posts:[]};saveSocialState();return[];}
+  const gathered=[];const batch=3;
+  for(let i=0;i<addrs.length;i+=batch){
+    const chunk=addrs.slice(i,i+batch);
+    const parts=await Promise.all(chunk.map(addr=>fetchMessages(addr,20).catch(()=>[])));
+    gathered.push(...parts.flat());
+    if(i+batch<addrs.length) await new Promise(r=>setTimeout(r,180));
+  }
+  const byTx=new Map();
+  blockFilterRows(gathered.map(asRoot).filter(Boolean)).forEach(r=>{if(r?.txId) byTx.set(r.txId,r);});
+  const posts=[...byTx.values()].sort((a,b)=>new Date(b.blockDate||0)-new Date(a.blockDate||0));
+  S.communityCache={ts:Date.now(),posts};
+  saveSocialState();
+  return posts;
+}
+async function loadCommunityFeed(){
+  const feed=$('communityFeed');if(!feed) return;
+  setSidebarMode('follows');
+  renderSidebarList();
+  const followed=[...S.followed].filter(a=>!isBlockedAddr(a));
+  if(!followed.length){
+    feed.innerHTML='<div class="feed-loading"><div class="spinner"></div>No friends followed yet — loading trending feed…</div>';
+    try{
+      const roots=blockFilterRows((await searchRoots('',24).catch(()=>[])).map(r=>normalizeRoot(r?.Root||r?.root||r)).filter(Boolean));
+      clr(feed);
+      if(!roots.length) feed.innerHTML='<div class="feed-empty">No community posts yet.</div>';
+      else roots.forEach(r=>feed.appendChild(buildTweetEl(r,{})));
+      loadTrending(roots);
+    }catch{feed.innerHTML='<div class="feed-empty">No community posts yet.</div>';}
+    return;
+  }
+  const cached=blockFilterRows((S.communityCache?.posts||[]).map(asRoot).filter(Boolean)).sort((a,b)=>new Date(b.blockDate||0)-new Date(a.blockDate||0));
+  clr(feed);
+  if(cached.length) cached.forEach(r=>feed.appendChild(buildTweetEl(r,{})));
+  else feed.innerHTML='<div class="feed-loading"><div class="spinner"></div>Building community feed…</div>';
+  refreshCommunityCache().then(rows=>{
+    if(S.view!=='community') return;
+    const list=blockFilterRows((rows||[]).map(asRoot).filter(Boolean)).sort((a,b)=>new Date(b.blockDate||0)-new Date(a.blockDate||0));
+    clr(feed);
+    if(!list.length) feed.innerHTML='<div class="feed-empty">No posts yet from followed addresses.</div>';
+    else list.forEach(r=>feed.appendChild(buildTweetEl(r,{})));
+  }).catch(()=>{if(!cached.length) feed.innerHTML='<div class="feed-empty">Could not build community feed.</div>';});
+}
+
+window.toggleFollowAddr=function(addr){
+  if(!isAddr(addr)||addr===S.addr) return;
+  if(S.followed.has(addr)) S.followed.delete(addr); else S.followed.add(addr);
+  saveSocialState();
+  renderSidebarList();
+  if(S.view==='community') loadCommunityFeed();
+};
+window.toggleBlockAddr=function(addr){
+  if(!isAddr(addr)||addr===S.addr) return;
+  if(S.blocked.has(addr)) S.blocked.delete(addr);
+  else{S.blocked.add(addr);S.followed.delete(addr);}
+  saveSocialState();
+  renderSidebarList();
+  if(S.view==='community') loadCommunityFeed();
+  if(S.view==='home'){S.feedLoaded=false;loadHomeFeed();}
+  if(S.view==='myprofile') loadMyProfile();
+};
 
 /* ═══════════════════════════════════════════════════
    EXPLORE / SEARCH
@@ -1874,8 +2032,9 @@ async function runExploreSearch(query){
       const urn=q.slice(1);
       const profile=await fetchProfileByURN(urn);
       if(!profile?.addr) throw new Error(`@${urn} not found`);
+      if(isBlockedAddr(profile.addr)) throw new Error('This profile is blocked');
       const official=await isOfficial(profile);
-      const posts=await fetchMessages(profile.addr);
+      const posts=blockFilterRows(await fetchMessages(profile.addr));
       clr(res);
       res.appendChild(buildProfilePageEl(profile,official,posts,profile.addr===S.addr));
       return;
@@ -1883,7 +2042,8 @@ async function runExploreSearch(query){
     if(isAddr(q)){
       const profile=await fetchProfileByAddr(q);
       const official=await isOfficial(profile||{});
-      const posts=await fetchMessages(q);
+      if(isBlockedAddr(q)) throw new Error('This address is blocked');
+      const posts=blockFilterRows(await fetchMessages(q));
       clr(res);
       res.appendChild(buildProfilePageEl(profile||{addr:q,displayName:shortAddr(q),image:'',bio:'',urn:'',urls:{},loc:{}},official,posts,q===S.addr));
       return;
@@ -1891,6 +2051,7 @@ async function runExploreSearch(query){
     if(TXID_RE.test(q)){
       const root=await fetchSingleRoot(q.toLowerCase());
       if(!root) throw new Error('Transaction not found');
+      if(isBlockedAddr(root.fromAddr)) throw new Error('This post is from a blocked address');
       clr(res);
       res.appendChild(buildTweetEl(root,{}));
       // load thread
@@ -1900,7 +2061,7 @@ async function runExploreSearch(query){
         if(filtered.length){
           const hdr=document.createElement('div');hdr.innerHTML=`<div style="padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border);">${plural(filtered.length,'reply')}</div>`;
           res.appendChild(hdr);
-          filtered.forEach(r=>res.appendChild(buildTweetEl(r,{})));
+          blockFilterRows(filtered).forEach(r=>res.appendChild(buildTweetEl(r,{})));
         }
       }catch{}
       return;
@@ -1908,7 +2069,7 @@ async function runExploreSearch(query){
     if(q.startsWith('#')){
       const tag=q.slice(1);
       const addr=await kwAddr(tag);
-      const msgs=await fetchMessages(addr,50);
+      const msgs=blockFilterRows(await fetchMessages(addr,50));
       clr(res);
       const hdr=document.createElement('div');
       hdr.innerHTML=`<div style="padding:14px 16px;border-bottom:1px solid var(--border);"><span style="font-size:1.2rem;font-weight:700;">${esc(q)}</span><div style="color:var(--muted);font-size:.85rem;">${plural(msgs.length,'post')}</div></div>`;
@@ -1925,7 +2086,7 @@ async function runExploreSearch(query){
       const hdr=document.createElement('div');hdr.innerHTML=`<div style="padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border);">People</div>`;
       res.appendChild(hdr);
       prs.forEach(raw=>{
-        const p=normalizeProfile(raw);if(!p) return;
+        const p=normalizeProfile(raw);if(!p||isBlockedAddr(p.addr)) return;
         const el=document.createElement('div');
         el.style.cssText='display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;';
         el.onclick=()=>openUserProfile(p.urn||p.addr);
@@ -1941,7 +2102,7 @@ async function runExploreSearch(query){
     if(rts.length){
       const hdr=document.createElement('div');hdr.innerHTML=`<div style="padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border);">Posts</div>`;
       res.appendChild(hdr);
-      rts.map(r=>normalizeRoot(r?.Root||r?.root||r)).filter(Boolean).forEach(r=>res.appendChild(buildTweetEl(r,{})));
+      blockFilterRows(rts.map(r=>normalizeRoot(r?.Root||r?.root||r)).filter(Boolean)).forEach(r=>res.appendChild(buildTweetEl(r,{})));
     }
   }catch(e){res.innerHTML=`<div class="feed-err">Search error: ${esc(e.message)}</div>`;}
 }
@@ -1960,8 +2121,14 @@ window.openUserProfile=async function(urnOrAddr){
     if(isAddr(urnOrAddr)) profile=await fetchProfileByAddr(urnOrAddr);
     else profile=await fetchProfileByURN(urnOrAddr);
     if(!profile?.addr) throw new Error('Profile not found');
+    if(isBlockedAddr(profile.addr)){
+      nm.textContent=profile.displayName||shortAddr(profile.addr);
+      pc.textContent='Blocked';
+      body.innerHTML=`<div class="feed-empty">This address is blocked.<div style="margin-top:12px;"><button class="btn btn-out btn-sm" onclick="toggleBlockAddr('${esc(profile.addr)}')">Unblock</button></div></div>`;
+      return;
+    }
     const official=await isOfficial(profile);
-    const posts=await fetchMessages(profile.addr,25);
+    const posts=blockFilterRows(await fetchMessages(profile.addr,25));
     const postCache={};
     await Promise.allSettled([...new Set(posts.map(p=>p.fromAddr).filter(Boolean))].slice(0,20).map(async a=>{
       const p=await fetchProfileByAddr(a);if(p?.addr) postCache[p.addr]=p;
@@ -1978,11 +2145,12 @@ async function openPostDetail(txid){
   try{
     const root=await fetchSingleRoot(txid);
     if(!root) throw new Error('Post not found');
+    if(isBlockedAddr(root.fromAddr)) throw new Error('This post is from a blocked address');
     clr(body);
     let threadRows=[];
     try{
       const replies=await fetchMessages(await kwAddr(txid),50);
-      threadRows=replies.filter(r=>r.txId&&r.txId!==txid.toLowerCase());
+      threadRows=blockFilterRows(replies.filter(r=>r.txId&&r.txId!==txid.toLowerCase()));
     }catch{}
     const metrics={comments:0,retweets:0};
     threadRows.forEach(r=>{const a=classifyThreadActions(r.message);if(a.comment)metrics.comments+=1;if(a.retweet)metrics.retweets+=1;});
@@ -2013,7 +2181,10 @@ function openModal(id){
   const el=$(id);if(!el) return;
   el.classList.remove('hidden');
   if(id==='modalWallet'){renderWalletUI($('walletModalBody'));}
-  if(id==='modalProfileEdit'&&!S.addr){closeModal(id);alert('Unlock wallet first');return;}
+  if(id==='modalProfileEdit'&&!S.addr){
+    const st=$('peStatus');
+    showStatus(st,'Unlock wallet to broadcast profile claim. You can still fill and check handle now.','warn');
+  }
 }
 function closeModal(id){const el=$(id);if(el)el.classList.add('hidden');}
 window.openModal=openModal;
@@ -2096,6 +2267,7 @@ window.autoResize=autoResize;
    INIT
 ═══════════════════════════════════════════════════ */
 (async()=>{
+  loadSocialState();
   // check for stored wallet
   const stored=localStorage.getItem(WALLET_KEY);
   if(stored){
@@ -2107,6 +2279,7 @@ window.autoResize=autoResize;
   renderWalletUI($('walletModalBody'));
   // start home feed
   loadHomeFeed();
+  setSidebarMode('trending');
   // populate profile editor placeholders
   populateProfileEditor(null);
   addKvRow('peUrlPairs','url');
