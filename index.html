@@ -783,7 +783,8 @@ async function buildTx(utxos,outputs){
 }
 async function broadcastTx(outputs) {
   if(!S.priv) throw new Error('Wallet is locked');
-  const kr=await buildKeyring(S.priv);
+  const kr=S.keyring||await buildKeyring(S.priv);
+  if(!S.keyring) S.keyring=kr;
   const byAddr=new Map(kr.all.map(s=>[s.addr,s]));
   const [cA,cB]=kr.changes;
   const utxoGroups=await Promise.all(kr.all.map(async sg=>{
@@ -946,14 +947,46 @@ function attachPreviewUrl(token){
   if(oc) return`${API_BASE}/root/${oc[2].toLowerCase()}/${encodeURIComponent(oc[3])}`;
   return'';
 }
-function profileImgUrl(ref){
-  const v=norm(ref);if(!v) return FALLBACK_AVI;
-  if(/^https?:\/\//i.test(v)) return v;
-  const ipfs=extractIpfsParts(v);if(ipfs?.cid) return buildIpfsUrl(ipfs.cid,ipfs.path);
+// Returns ordered candidate URLs for a profile image (CID-only first, then CID+path, per SupTV pattern)
+function profileImgCandidates(ref){
+  const v=norm(ref);if(!v) return [];
+  if(/^https?:\/\//i.test(v)) return [v];
+  const ipfs=extractIpfsParts(v);
+  if(ipfs?.cid){
+    const cands=[];
+    // Try CID-only on each gateway first (like SupTV / SupRadio)
+    IPFS_GWS.forEach((gw,gi)=>cands.push(buildIpfsUrl(ipfs.cid,'',gi)));
+    // Then CID+path on each gateway (if path is present)
+    if(ipfs.path) IPFS_GWS.forEach((gw,gi)=>cands.push(buildIpfsUrl(ipfs.cid,ipfs.path,gi)));
+    return cands;
+  }
   const oc=v.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})[\\/]([^\s<>]+)$/);
-  if(oc) return`${API_BASE}/root/${oc[2].toLowerCase()}/${encodeURIComponent(oc[3])}`;
-  return FALLBACK_AVI;
+  if(oc) return[`${API_BASE}/root/${oc[2].toLowerCase()}/${encodeURIComponent(oc[3])}`];
+  return[];
 }
+function profileImgUrl(ref){
+  const c=profileImgCandidates(ref);return c.length?c[0]:FALLBACK_AVI;
+}
+// Returns an attribute string for <img> tags: src="..." data-cands="[...]" onerror="pi_err(this)"
+function profileImgAttrs(ref){
+  const cands=profileImgCandidates(ref);
+  if(!cands.length) return `src="${FALLBACK_AVI}"`;
+  const [first,...rest]=cands;
+  const fallbacks=[...rest,FALLBACK_AVI];
+  return`src="${esc(first)}" data-cands="${esc(JSON.stringify(fallbacks))}" onerror="pi_err(this)"`;
+}
+// Cascade onerror handler - advances through data-cands list
+window.pi_err=function(el){
+  try{
+    const cands=JSON.parse(el.dataset.cands||'[]');
+    if(cands.length){
+      el.dataset.cands=JSON.stringify(cands.slice(1));
+      el.src=cands[0];
+    }else{
+      el.removeAttribute('onerror');el.src=FALLBACK_AVI;
+    }
+  }catch{el.removeAttribute('onerror');el.src=FALLBACK_AVI;}
+};
 
 /* ═══════════════════════════════════════════════════
    API HELPERS
@@ -1089,7 +1122,7 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread}={}){
   const art=document.createElement('article');
   art.className='tweet';
   const cached=profileCache[root.fromAddr];
-  const aviSrc=cached?profileImgUrl(cached.image):FALLBACK_AVI;
+  const aviAttrs=cached?profileImgAttrs(cached.image):`src="${FALLBACK_AVI}"`;
   const displayName=cached?cached.displayName:shortAddr(root.fromAddr);
   const handle=cached?cached.urn:'';
   const{clean,attachments,links}=parseMsg(root.message);
@@ -1105,7 +1138,7 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread}={}){
     else if(preview) mediaHtml.push(`<div class="tweet-media-file">📎 <a href="${esc(preview)}" target="_blank" rel="noopener">${esc(tok.slice(0,60))}</a></div>`);
   });
   art.innerHTML=`
-    <img class="tweet-avi" src="${esc(aviSrc)}" alt="${esc(displayName)}" onerror="this.src='${FALLBACK_AVI}'" onclick="openUserProfile('${esc(handle||root.fromAddr)}')">
+    <img class="tweet-avi" ${aviAttrs} alt="${esc(displayName)}" onclick="openUserProfile('${esc(handle||root.fromAddr)}')">
     <div class="tweet-body">
       <div class="tweet-header">
         <span class="tweet-name" onclick="openUserProfile('${esc(handle||root.fromAddr)}')">${esc(displayName)}</span>
@@ -1136,13 +1169,13 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread}={}){
 
 function buildProfilePageEl(profile, official, posts=[], ownProfile=false){
   const wrap=document.createElement('div');
-  const imgSrc=profileImgUrl(profile.image);
+  const imgAttrs=profileImgAttrs(profile.image);
   const linksHtml=Object.entries(profile.urls||{}).map(([k,v])=>`<a href="${esc(v)}" target="_blank" rel="noopener" style="color:var(--accent);">🔗 ${esc(k)}</a>`).join(' ');
   const locHtml=Object.values(profile.loc||{}).join(', ');
   wrap.innerHTML=`
     <div class="profile-banner"></div>
     <div style="position:relative;">
-      <div class="profile-avi-wrap"><img class="profile-avi-lg" src="${esc(imgSrc)}" alt="${esc(profile.displayName)}" onerror="this.src='${FALLBACK_AVI}'"></div>
+      <div class="profile-avi-wrap"><img class="profile-avi-lg" ${imgAttrs} alt="${esc(profile.displayName)}"></div>
       ${ownProfile?`<div class="profile-top-bar"><button class="btn-edit-profile" onclick="openModal('modalProfileEdit')">Edit profile</button></div>`:
         `<div class="profile-top-bar"></div>`}
     </div>
@@ -1177,15 +1210,13 @@ function renderWalletUI(container, balance=null){
   let html='';
   if(!locked){
     html+=`<div class="wallet-address-card">
-      <div class="wallet-addr-title">Unlocked address</div>
+      <div class="wallet-addr-title">Wallet addresses (main + change)</div>
       <div class="wallet-addr-val mono">${esc(S.addr)}</div>
-      <div class="wallet-balances">
-        ${balance?`<span class="balance-chip balance-confirmed">✓ ${(balance.confirmed/1e8).toFixed(8)} tBTC confirmed</span>
-          <span class="balance-chip balance-unconf">⏳ ${(balance.unconfirmed/1e8).toFixed(8)} tBTC unconfirmed</span>`
-          :'<span style="color:var(--muted);font-size:.82rem;">Loading balance…</span>'}
+      <div class="wallet-balances" id="walletBalances">
+        <span style="color:var(--muted);font-size:.82rem;">Loading balances…</span>
       </div>
     </div>
-    <div class="f-status info" id="walletStatusMsg" style="margin-bottom:12px;">Wallet unlocked ✓</div>
+    <div class="f-status info" id="walletStatusMsg" style="margin-bottom:12px;">Wallet unlocked ✓ (main + ${CHANGE_COUNT} change addresses)</div>
     <div class="btn-row" style="margin-bottom:16px;">
       <button class="btn btn-out btn-sm" onclick="exportWif()">Export WIF</button>
       <button class="btn btn-out btn-sm" onclick="lockWallet()">Lock</button>
@@ -1209,14 +1240,18 @@ function renderWalletUI(container, balance=null){
   if(!locked) refreshBalance();
 }
 async function refreshBalance(){
-  if(!S.addr) return;
+  if(!S.addr||!S.priv) return;
   try{
-    const bal=await getBalance(S.addr);
-    const wc=$('walletAddressCard')||document.querySelector('.wallet-address-card');
-    if(wc){
-      const bw=wc.querySelector('.wallet-balances');
-      if(bw) bw.innerHTML=`<span class="balance-chip balance-confirmed">✓ ${(bal.confirmed/1e8).toFixed(8)} tBTC confirmed</span><span class="balance-chip balance-unconf">⏳ ${(bal.unconfirmed/1e8).toFixed(8)} tBTC unconfirmed</span>`;
-    }
+    // Use cached keyring (same derivation as SupTV/SupRadio)
+    const kr=S.keyring||await buildKeyring(S.priv);
+    if(!S.keyring) S.keyring=kr;
+    // Fetch balances for main + all change addresses in parallel
+    const bals=await Promise.all(kr.all.map(sg=>getBalance(sg.addr).catch(()=>({confirmed:0,unconfirmed:0}))));
+    const total=bals.reduce((acc,b)=>({confirmed:acc.confirmed+(b.confirmed||0),unconfirmed:acc.unconfirmed+(b.unconfirmed||0)}),{confirmed:0,unconfirmed:0});
+    // Build per-address detail
+    const addrLines=kr.all.map((sg,i)=>{const b=bals[i];return b.confirmed||b.unconfirmed?`<div style="font-size:.75rem;color:var(--muted);margin-top:2px;">${esc(sg.label)}: ${(b.confirmed/1e8).toFixed(8)} confirmed</div>`:''}).join('');
+    const bw=document.querySelector('#walletBalances');
+    if(bw) bw.innerHTML=`<span class="balance-chip balance-confirmed">✓ ${(total.confirmed/1e8).toFixed(8)} tBTC confirmed</span><span class="balance-chip balance-unconf">⏳ ${(total.unconfirmed/1e8).toFixed(8)} tBTC unconfirmed</span>${addrLines}`;
   }catch{}
 }
 function walletMsg(msg,kind='info'){const el=$('walletMsg');if(el)showStatus(el,msg,kind);}
@@ -1227,22 +1262,25 @@ function updateWalletMini(){
   if(mini){
     mini.classList.remove('hidden');
     const avi=$('walletMiniAvi'),nm=$('walletMiniName'),ad=$('walletMiniAddr');
-    if(S.myProfile&&avi) avi.src=profileImgUrl(S.myProfile.image);
+    if(S.myProfile&&avi){const cands=profileImgCandidates(S.myProfile.image);if(cands.length){avi.src=cands[0];avi.dataset.cands=JSON.stringify([...cands.slice(1),FALLBACK_AVI]);avi.onerror=()=>window.pi_err(avi);}else avi.src=FALLBACK_AVI;}
     else if(avi) avi.src=FALLBACK_AVI;
     if(nm) nm.textContent=S.myProfile?.displayName||shortAddr(S.addr);
     if(ad) ad.textContent=shortAddr(S.addr);
   }
-  // also update inline compose avi
+  // also update inline compose avi with cascade
   const ica=$('inlineComposeAvi'),cma=$('cmAvi');
-  const src=S.myProfile?profileImgUrl(S.myProfile.image):FALLBACK_AVI;
-  if(ica) ica.src=src;
-  if(cma) cma.src=src;
+  const cands=S.myProfile?profileImgCandidates(S.myProfile.image):[];
+  const src=cands.length?cands[0]:FALLBACK_AVI;
+  const fb=JSON.stringify([...cands.slice(1),FALLBACK_AVI]);
+  [ica,cma].forEach(el=>{if(!el)return;el.src=src;el.dataset.cands=fb;el.onerror=()=>window.pi_err(el);});
   // show inline compose
   const ic=$('inlineCompose');
   if(ic) ic.classList.toggle('hidden',!S.addr);
 }
 async function afterUnlock(){
   updateWalletMini();
+  // cache keyring for balance display (same derivation as SupTV/SupRadio)
+  try{ S.keyring=await buildKeyring(S.priv); }catch{}
   // load own profile
   try{S.myProfile=await fetchProfileByAddr(S.addr);updateWalletMini();}catch{}
   // render wallet views
@@ -1571,7 +1609,7 @@ async function loadHomeFeed(){
         const el=document.createElement('div');
         el.style.cssText='display:flex;align-items:center;gap:10px;padding:8px 0;cursor:pointer;';
         el.onclick=()=>openUserProfile(p.urn||p.addr);
-        el.innerHTML=`<img src="${esc(profileImgUrl(p.image))}" style="width:40px;height:40px;border-radius:50%;object-fit:cover;background:#222;" onerror="this.src='${FALLBACK_AVI}'" alt="">
+        el.innerHTML=`<img ${profileImgAttrs(p.image)} style="width:40px;height:40px;border-radius:50%;object-fit:cover;background:#222;" alt="">
           <div style="min-width:0;flex:1;">
             <div style="font-weight:700;font-size:.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(p.displayName)}</div>
             ${p.urn?`<div style="color:var(--muted);font-size:.78rem;">@${esc(p.urn)}</div>`:''}
@@ -1579,29 +1617,55 @@ async function loadHomeFeed(){
         wtf.appendChild(el);
       });
     }
-    // render roots
-    const roots=rts.map(raw=>normalizeRoot(raw)).filter(Boolean);
+    // render roots — unwrap Root wrapper if present (format varies by endpoint)
+    const roots=rts.map(raw=>normalizeRoot(raw?.Root||raw?.root||raw)).filter(Boolean);
     if(!roots.length){feed.innerHTML='<div class="feed-empty">No recent posts found.</div>';return;}
+    // Batch-fetch profiles for unique senders so tweet cards show names & avatars
+    const senderAddrs=[...new Set(roots.map(r=>r.fromAddr).filter(Boolean))].slice(0,15);
+    await Promise.allSettled(senderAddrs.map(addr=>
+      fetchProfileByAddr(addr).then(p=>{if(p&&p.addr) profileCache[p.addr]=p;}).catch(()=>{})
+    ));
     roots.forEach(root=>{
       const el=buildTweetEl(root,{profileCache});
       feed.appendChild(el);
     });
-    // load trending tags in right sidebar
+    // load trending from API (with local fallback)
     loadTrending(roots);
   }catch(e){feed.innerHTML=`<div class="feed-err">Could not load feed: ${esc(e.message)}</div>`;}
 }
 
-function loadTrending(roots){
+async function loadTrending(rootsFallback=[]){
   const tc=$('trendingContent');if(!tc) return;
+  try{
+    const data=await fetchJ(`${API_BASE}/GetTrendingRootSearches?qty=20`,10000);
+    const rows=Array.isArray(data)?data:[];
+    if(!rows.length) throw new Error('empty');
+    clr(tc);
+    const seen=new Set();let rendered=0;
+    for(const row of rows){
+      const term=norm(row?.searchString||row?.SearchString||row?.keyword||row?.Keyword||'');
+      if(!term||seen.has(term.toLowerCase())) continue;
+      seen.add(term.toLowerCase());
+      const results=Number(row?.lastResultCount||row?.ResultCount||row?.resultCount||row?.results||0)||0;
+      const searches=Number(row?.successfulSearchCount||row?.SearchCount||row?.searchCount||row?.count||0)||0;
+      const el=document.createElement('div');el.className='trend-item';
+      el.onclick=()=>exploreTag(term);
+      el.innerHTML=`<div class="trend-cat">Trending · testnet3</div><div class="trend-kw">#${esc(term)}</div><div class="trend-n">${searches?searches+' searches':(results?results+' posts':'')}</div>`;
+      tc.appendChild(el);
+      if(++rendered>=8) break;
+    }
+    if(!rendered) throw new Error('no items rendered');
+    return;
+  }catch{/* fall through to local parse */}
+  // Local fallback: extract hashtags from already-loaded roots
   const tagCount=new Map();
-  roots.forEach(r=>{
+  rootsFallback.forEach(r=>{
     const tags=(r.message||'').match(/#([a-zA-Z0-9_-]{2,32})/g)||[];
     tags.forEach(t=>tagCount.set(t,(tagCount.get(t)||0)+1));
   });
-  if(!tagCount.size){tc.innerHTML='<div class="trend-n">No trending topics</div>';return;}
-  const sorted=[...tagCount.entries()].sort((a,b)=>b[1]-a[1]).slice(0,8);
+  if(!tagCount.size){tc.innerHTML='<div class="trend-n">No trending topics yet</div>';return;}
   clr(tc);
-  sorted.forEach(([tag,n])=>{
+  [...tagCount.entries()].sort((a,b)=>b[1]-a[1]).slice(0,8).forEach(([tag,n])=>{
     const el=document.createElement('div');el.className='trend-item';
     el.onclick=()=>exploreTag(tag.slice(1));
     el.innerHTML=`<div class="trend-cat">Trending · testnet3</div><div class="trend-kw">${esc(tag)}</div><div class="trend-n">${n} ${n===1?'post':'posts'}</div>`;
@@ -1677,7 +1741,7 @@ async function runExploreSearch(query){
         const el=document.createElement('div');
         el.style.cssText='display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer;';
         el.onclick=()=>openUserProfile(p.urn||p.addr);
-        el.innerHTML=`<img src="${esc(profileImgUrl(p.image))}" style="width:48px;height:48px;border-radius:50%;object-fit:cover;background:#222;" onerror="this.src='${FALLBACK_AVI}'" alt="">
+        el.innerHTML=`<img ${profileImgAttrs(p.image)} style="width:48px;height:48px;border-radius:50%;object-fit:cover;background:#222;" alt="">
           <div>
             <div style="font-weight:700;">${esc(p.displayName)}</div>
             ${p.urn?`<div style="color:var(--muted);font-size:.88rem;">@${esc(p.urn)}</div>`:''}
@@ -1689,7 +1753,7 @@ async function runExploreSearch(query){
     if(rts.length){
       const hdr=document.createElement('div');hdr.innerHTML=`<div style="padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border);">Posts</div>`;
       res.appendChild(hdr);
-      rts.map(r=>normalizeRoot(r)).filter(Boolean).forEach(r=>res.appendChild(buildTweetEl(r,{})));
+      rts.map(r=>normalizeRoot(r?.Root||r?.root||r)).filter(Boolean).forEach(r=>res.appendChild(buildTweetEl(r,{})));
     }
   }catch(e){res.innerHTML=`<div class="feed-err">Search error: ${esc(e.message)}</div>`;}
 }
