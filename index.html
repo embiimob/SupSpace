@@ -572,6 +572,7 @@ const S = {
   blocked: new Set(),
   communityCache: {ts:0,posts:[]},
   sidebarMode: 'trending',
+  sidebarRenderToken: 0,
   composeAttachments: [],
   normalizedImg: '',
   handleCheck: null,
@@ -637,7 +638,11 @@ function loadSocialState(){
     S.followed=new Set((Array.isArray(raw.followed)?raw.followed:[]).filter(isAddr));
     S.blocked=new Set((Array.isArray(raw.blocked)?raw.blocked:[]).filter(isAddr));
     const cc=raw.communityCache||{};
-    S.communityCache={ts:Number(cc.ts||0),posts:Array.isArray(cc.posts)?cc.posts.map(asRoot).filter(Boolean):[]};
+    S.communityCache={
+      ts:Number(cc.ts||0),
+      posts:Array.isArray(cc.posts)?cc.posts.map(asRoot).filter(Boolean):[],
+      followedKey:norm(cc.followedKey||'')
+    };
   }catch{}
 }
 function isBlockedAddr(addr){return isAddr(addr)&&S.blocked.has(addr);}
@@ -656,11 +661,18 @@ function asRoot(raw){
 }
 async function buildSenderProfileCache(roots=[], seed={}){
   const cache={...seed};
-  const addrs=[...new Set((roots||[]).map(r=>r?.fromAddr).filter(isAddr))].filter(a=>!cache[a]).slice(0,60);
+  Object.keys(seed||{}).forEach(k=>{
+    const nk=norm(k);
+    if(nk&&cache[k]) cache[nk.toLowerCase()]=cache[k];
+  });
+  const addrs=[...new Set((roots||[]).map(r=>norm(r?.fromAddr)).filter(isAddr))].filter(a=>!cache[a]&&!cache[a.toLowerCase()]).slice(0,60);
   if(!addrs.length) return cache;
   await Promise.allSettled(addrs.map(async addr=>{
     const p=await fetchProfileByAddr(addr);
-    if(p?.addr) cache[p.addr]=p;
+    if(p?.addr){
+      cache[p.addr]=p;
+      cache[p.addr.toLowerCase()]=p;
+    }
   }));
   return cache;
 }
@@ -1366,13 +1378,16 @@ function renderAttachEl(token){
   return wrap;
 }
 
-function buildTweetEl(root, {profileCache={}, onReply, onThread}={}){
+function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='modal'}={}){
   const art=document.createElement('article');
   art.className='tweet';
-  const cached=profileCache[root.fromAddr];
+  const fromAddr=norm(root.fromAddr);
+  const cached=profileCache[fromAddr]||profileCache[fromAddr.toLowerCase()];
   const aviAttrs=cached?profileImgAttrs(cached.image):`src="${FALLBACK_AVI}"`;
-  const displayName=cached?cached.displayName:shortAddr(root.fromAddr);
+  const displayName=cached?cached.displayName:shortAddr(fromAddr);
   const handle=cached?cached.urn:'';
+  const profileTarget=handle||fromAddr;
+  const profileNavMode=profileNav==='main'?'main':'modal';
   const{clean,attachments,links}=parseMsg(root.message);
   const poll=extractInlinePoll(clean);
   const cleanText=poll?poll.textWithoutPoll:clean;
@@ -1386,10 +1401,10 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread}={}){
     else if(preview) mediaHtml.push(`<div class="tweet-media-file">📎 <a href="${esc(preview)}" target="_blank" rel="noopener">${esc(tok.slice(0,60))}</a></div>`);
   });
   art.innerHTML=`
-    <img class="tweet-avi" ${aviAttrs} alt="${esc(displayName)}" onclick="openUserProfile('${esc(handle||root.fromAddr)}')">
+    <img class="tweet-avi" ${aviAttrs} alt="${esc(displayName)}" onclick="openProfileTarget('${esc(profileTarget)}','${profileNavMode}')">
     <div class="tweet-body">
       <div class="tweet-header">
-        <span class="tweet-name" onclick="openUserProfile('${esc(handle||root.fromAddr)}')">${esc(displayName)}</span>
+        <span class="tweet-name" onclick="openProfileTarget('${esc(profileTarget)}','${profileNavMode}')">${esc(displayName)}</span>
         ${handle?`<span class="tweet-handle">@${esc(handle)}</span>`:''}
         ${root.blockDate?`<span class="tweet-time">· ${fmtRel(root.blockDate)}</span>`:''}
       </div>
@@ -1849,10 +1864,12 @@ async function loadMyProfile(){
     const official=await isOfficial(S.myProfile);
     let posts=[];
     if(S.myProfile?.addr) posts=await fetchMessages(S.myProfile.addr);
-    const postCache={};
-    await Promise.allSettled([...new Set(posts.map(p=>p.fromAddr).filter(Boolean))].slice(0,20).map(async a=>{
-      const p=await fetchProfileByAddr(a);if(p?.addr) postCache[p.addr]=p;
-    }));
+    const seed={};
+    if(S.myProfile?.addr){
+      seed[S.myProfile.addr]=S.myProfile;
+      seed[S.myProfile.addr.toLowerCase()]=S.myProfile;
+    }
+    const postCache=await buildSenderProfileCache(posts,seed);
     c.replaceChildren(buildProfilePageEl(S.myProfile||{addr:S.addr,displayName:shortAddr(S.addr),image:'',bio:'',urn:'',urls:{},loc:{}},official,posts,true,postCache));
     const tt=$('myProfileTitle');
     if(tt) tt.textContent=S.myProfile?.displayName||shortAddr(S.addr);
@@ -1938,6 +1955,7 @@ async function loadTrending(rootsFallback=[]){
 async function renderSidebarList(){
   const tc=$('trendingContent'),title=$('sidebarListTitle');
   if(!tc||!title) return;
+  const token=++S.sidebarRenderToken;
   if(S.sidebarMode==='trending'){title.textContent='Trending';await loadTrending((S.communityCache?.posts||[]).map(asRoot).filter(Boolean));return;}
   const addrs=S.sidebarMode==='blocked'?[...S.blocked]:[...S.followed];
   title.textContent=S.sidebarMode==='blocked'?'Blocked addresses':'Following / Friends';
@@ -1954,6 +1972,7 @@ async function renderSidebarList(){
     const p=await fetchProfileByAddr(addr).catch(()=>null);
     return{addr,p};
   }));
+  if(token!==S.sidebarRenderToken) return;
   rows.forEach(({addr,p})=>{
     const el=document.createElement('div');
     el.className='social-item';
@@ -1981,9 +2000,10 @@ async function renderSidebarList(){
 
 async function refreshCommunityCache({force=false}={}){
   const addrs=[...S.followed].filter(a=>!isBlockedAddr(a));
+  const followedKey=[...addrs].sort().join('|');
   const freshMs=5*60*1000;
-  if(!force&&Date.now()-Number(S.communityCache?.ts||0)<freshMs) return S.communityCache.posts||[];
-  if(!addrs.length){S.communityCache={ts:Date.now(),posts:[]};saveSocialState();return[];}
+  if(!force&&Date.now()-Number(S.communityCache?.ts||0)<freshMs&&norm(S.communityCache?.followedKey)===followedKey) return S.communityCache.posts||[];
+  if(!addrs.length){S.communityCache={ts:Date.now(),posts:[],followedKey:''};saveSocialState();return[];}
   const gathered=[];const batch=3;
   for(let i=0;i<addrs.length;i+=batch){
     const chunk=addrs.slice(i,i+batch);
@@ -1994,14 +2014,12 @@ async function refreshCommunityCache({force=false}={}){
   const byTx=new Map();
   blockFilterRows(gathered.map(asRoot).filter(Boolean)).forEach(r=>{if(r?.txId) byTx.set(r.txId,r);});
   const posts=[...byTx.values()].sort((a,b)=>new Date(b.blockDate||0)-new Date(a.blockDate||0));
-  S.communityCache={ts:Date.now(),posts};
+  S.communityCache={ts:Date.now(),posts,followedKey};
   saveSocialState();
   return posts;
 }
 async function loadCommunityFeed(){
   const feed=$('communityFeed');if(!feed) return;
-  setSidebarMode('follows');
-  renderSidebarList();
   const followed=[...S.followed].filter(a=>!isBlockedAddr(a));
   if(!followed.length){
     feed.innerHTML='<div class="feed-loading"><div class="spinner"></div>No friends followed yet — loading trending feed…</div>';
@@ -2010,7 +2028,7 @@ async function loadCommunityFeed(){
       const profileCache=await buildSenderProfileCache(roots,{});
       clr(feed);
       if(!roots.length) feed.innerHTML='<div class="feed-empty">No community posts yet.</div>';
-      else roots.forEach(r=>feed.appendChild(buildTweetEl(r,{profileCache})));
+      else roots.forEach(r=>feed.appendChild(buildTweetEl(r,{profileCache,profileNav:'main'})));
       loadTrending(roots);
     }catch{feed.innerHTML='<div class="feed-empty">No community posts yet.</div>';}
     return;
@@ -2019,17 +2037,17 @@ async function loadCommunityFeed(){
   clr(feed);
   if(cached.length){
     const cachedProfileCache=await buildSenderProfileCache(cached,{});
-    cached.forEach(r=>feed.appendChild(buildTweetEl(r,{profileCache:cachedProfileCache})));
+    cached.forEach(r=>feed.appendChild(buildTweetEl(r,{profileCache:cachedProfileCache,profileNav:'main'})));
   }
   else feed.innerHTML='<div class="feed-loading"><div class="spinner"></div>Building community feed…</div>';
-  refreshCommunityCache().then(rows=>{
+  refreshCommunityCache({force:true}).then(rows=>{
     if(S.view!=='community') return;
     const list=blockFilterRows((rows||[]).map(asRoot).filter(Boolean)).sort((a,b)=>new Date(b.blockDate||0)-new Date(a.blockDate||0));
     buildSenderProfileCache(list,{}).then(profileCache=>{
       if(S.view!=='community') return;
       clr(feed);
       if(!list.length) feed.innerHTML='<div class="feed-empty">No posts yet from followed addresses.</div>';
-      else list.forEach(r=>feed.appendChild(buildTweetEl(r,{profileCache})));
+      else list.forEach(r=>feed.appendChild(buildTweetEl(r,{profileCache,profileNav:'main'})));
     });
   }).catch(()=>{if(!cached.length) feed.innerHTML='<div class="feed-empty">Could not build community feed.</div>';});
 }
@@ -2041,7 +2059,10 @@ window.toggleFollowAddr=function(addr){
   else{S.followed.add(addr);added=true;}
   saveSocialState();
   renderSidebarList();
-  if(added) refreshCommunityCache({force:true}).then(()=>{if(S.view==='community') loadCommunityFeed();}).catch(()=>{});
+  if(added){
+    refreshCommunityCache({force:true}).then(()=>{if(S.view==='community') loadCommunityFeed();}).catch(()=>{});
+    return;
+  }
   if(S.view==='community') loadCommunityFeed();
 };
 window.toggleBlockAddr=function(addr){
@@ -2155,6 +2176,18 @@ window.exploreTag=function(tag){
   const si=$('exploreSearchInput');if(si){si.value='#'+tag;}
   runExploreSearch('#'+tag);
 };
+window.openProfileInMainThread=function(urnOrAddr){
+  const target=norm(urnOrAddr);
+  const query=isAddr(target)?target:`@${target.replace(/^@/,'')}`;
+  switchView('explore');
+  const si=$('exploreSearchInput');
+  if(si) si.value=query;
+  runExploreSearch(query);
+};
+window.openProfileTarget=function(urnOrAddr,mode='modal'){
+  if(mode==='main') return openProfileInMainThread(urnOrAddr);
+  return openUserProfile(urnOrAddr);
+};
 window.openUserProfile=async function(urnOrAddr){
   const nm=$('profModalName'),pc=$('profModalPostCount'),body=$('profModalBody');
   if(!nm||!pc||!body) return;
@@ -2173,10 +2206,12 @@ window.openUserProfile=async function(urnOrAddr){
     }
     const official=await isOfficial(profile);
     const posts=blockFilterRows(await fetchMessages(profile.addr,25));
-    const postCache={};
-    await Promise.allSettled([...new Set(posts.map(p=>p.fromAddr).filter(Boolean))].slice(0,20).map(async a=>{
-      const p=await fetchProfileByAddr(a);if(p?.addr) postCache[p.addr]=p;
-    }));
+    const seed={};
+    if(profile?.addr){
+      seed[profile.addr]=profile;
+      seed[profile.addr.toLowerCase()]=profile;
+    }
+    const postCache=await buildSenderProfileCache(posts,seed);
     nm.textContent=profile.displayName||shortAddr(profile.addr);
     pc.textContent=plural(posts.length,'post');
     body.replaceChildren(buildProfilePageEl(profile,official,posts,profile.addr===S.addr,postCache));
