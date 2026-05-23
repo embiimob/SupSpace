@@ -157,6 +157,8 @@
     .social-item-main{min-width:0;flex:1}
     .social-item-title{font-weight:700;font-size:.86rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .social-item-sub{font-size:.74rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .tiny-link-btn{background:none;border:none;color:var(--accent);font-size:.8rem;padding:6px 0 0;cursor:pointer}
+    .tiny-link-btn:hover{text-decoration:underline}
 
     /* ── FAB ── */
     .fab{display:none;position:fixed;bottom:72px;right:16px;width:56px;height:56px;border-radius:50%;background:var(--accent);border:none;color:#fff;font-size:1.5rem;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(0,0,0,.5);z-index:50;transition:background .15s}
@@ -360,7 +362,6 @@
       <div class="btn-row" style="margin-bottom:8px;">
         <button class="btn btn-out btn-sm" onclick="setSidebarMode('trending')">Trending</button>
         <button class="btn btn-out btn-sm" onclick="setSidebarMode('follows')">Following</button>
-        <button class="btn btn-out btn-sm" onclick="setSidebarMode('blocked')">Blocked</button>
       </div>
       <div id="trendingContent"><div class="trend-n">Loading…</div></div>
     </div>
@@ -652,6 +653,16 @@ function asRoot(raw){
     blockDate:raw.blockDate||''
   };
   return normalizeRoot(raw?.Root||raw?.root||raw);
+}
+async function buildSenderProfileCache(roots=[], seed={}){
+  const cache={...seed};
+  const addrs=[...new Set((roots||[]).map(r=>r?.fromAddr).filter(isAddr))].filter(a=>!cache[a]).slice(0,60);
+  if(!addrs.length) return cache;
+  await Promise.allSettled(addrs.map(async addr=>{
+    const p=await fetchProfileByAddr(addr);
+    if(p?.addr) cache[p.addr]=p;
+  }));
+  return cache;
 }
 function setSidebarMode(mode='trending'){
   S.sidebarMode=mode;
@@ -1933,6 +1944,10 @@ async function renderSidebarList(){
   clr(tc);
   if(!addrs.length){
     tc.innerHTML=`<div class="trend-n">${S.sidebarMode==='blocked'?'No blocked addresses':'No followed addresses yet'}</div>`;
+    const row=document.createElement('div');
+    row.style.cssText='padding-top:4px;';
+    row.innerHTML=`<button class="tiny-link-btn" onclick="setSidebarMode('${S.sidebarMode==='blocked'?'follows':'blocked'}')">${S.sidebarMode==='blocked'?'Back to friends':'Blocked'}</button>`;
+    tc.appendChild(row);
     return;
   }
   const rows=await Promise.all(addrs.map(async addr=>{
@@ -1951,6 +1966,17 @@ async function renderSidebarList(){
       <button class="btn btn-out btn-sm" onclick="${S.sidebarMode==='blocked'?'toggleBlockAddr':'toggleFollowAddr'}('${esc(addr)}')">${S.sidebarMode==='blocked'?'Unblock':'Remove'}</button>`;
     tc.appendChild(el);
   });
+  if(S.sidebarMode==='follows'){
+    const row=document.createElement('div');
+    row.style.cssText='padding-top:4px;';
+    row.innerHTML='<button class="tiny-link-btn" onclick="setSidebarMode(\'blocked\')">Blocked</button>';
+    tc.appendChild(row);
+  }else{
+    const row=document.createElement('div');
+    row.style.cssText='padding-top:4px;';
+    row.innerHTML='<button class="tiny-link-btn" onclick="setSidebarMode(\'follows\')">Back to friends</button>';
+    tc.appendChild(row);
+  }
 }
 
 async function refreshCommunityCache({force=false}={}){
@@ -1981,31 +2007,41 @@ async function loadCommunityFeed(){
     feed.innerHTML='<div class="feed-loading"><div class="spinner"></div>No friends followed yet — loading trending feed…</div>';
     try{
       const roots=blockFilterRows((await searchRoots('',24).catch(()=>[])).map(r=>normalizeRoot(r?.Root||r?.root||r)).filter(Boolean));
+      const profileCache=await buildSenderProfileCache(roots,{});
       clr(feed);
       if(!roots.length) feed.innerHTML='<div class="feed-empty">No community posts yet.</div>';
-      else roots.forEach(r=>feed.appendChild(buildTweetEl(r,{})));
+      else roots.forEach(r=>feed.appendChild(buildTweetEl(r,{profileCache})));
       loadTrending(roots);
     }catch{feed.innerHTML='<div class="feed-empty">No community posts yet.</div>';}
     return;
   }
   const cached=blockFilterRows((S.communityCache?.posts||[]).map(asRoot).filter(Boolean)).sort((a,b)=>new Date(b.blockDate||0)-new Date(a.blockDate||0));
   clr(feed);
-  if(cached.length) cached.forEach(r=>feed.appendChild(buildTweetEl(r,{})));
+  if(cached.length){
+    const cachedProfileCache=await buildSenderProfileCache(cached,{});
+    cached.forEach(r=>feed.appendChild(buildTweetEl(r,{profileCache:cachedProfileCache})));
+  }
   else feed.innerHTML='<div class="feed-loading"><div class="spinner"></div>Building community feed…</div>';
   refreshCommunityCache().then(rows=>{
     if(S.view!=='community') return;
     const list=blockFilterRows((rows||[]).map(asRoot).filter(Boolean)).sort((a,b)=>new Date(b.blockDate||0)-new Date(a.blockDate||0));
-    clr(feed);
-    if(!list.length) feed.innerHTML='<div class="feed-empty">No posts yet from followed addresses.</div>';
-    else list.forEach(r=>feed.appendChild(buildTweetEl(r,{})));
+    buildSenderProfileCache(list,{}).then(profileCache=>{
+      if(S.view!=='community') return;
+      clr(feed);
+      if(!list.length) feed.innerHTML='<div class="feed-empty">No posts yet from followed addresses.</div>';
+      else list.forEach(r=>feed.appendChild(buildTweetEl(r,{profileCache})));
+    });
   }).catch(()=>{if(!cached.length) feed.innerHTML='<div class="feed-empty">Could not build community feed.</div>';});
 }
 
 window.toggleFollowAddr=function(addr){
   if(!isAddr(addr)||addr===S.addr) return;
-  if(S.followed.has(addr)) S.followed.delete(addr); else S.followed.add(addr);
+  let added=false;
+  if(S.followed.has(addr)) S.followed.delete(addr);
+  else{S.followed.add(addr);added=true;}
   saveSocialState();
   renderSidebarList();
+  if(added) refreshCommunityCache({force:true}).then(()=>{if(S.view==='community') loadCommunityFeed();}).catch(()=>{});
   if(S.view==='community') loadCommunityFeed();
 };
 window.toggleBlockAddr=function(addr){
@@ -2035,8 +2071,9 @@ async function runExploreSearch(query){
       if(isBlockedAddr(profile.addr)) throw new Error('This profile is blocked');
       const official=await isOfficial(profile);
       const posts=blockFilterRows(await fetchMessages(profile.addr));
+      const postCache=await buildSenderProfileCache(posts,{[profile.addr]:profile});
       clr(res);
-      res.appendChild(buildProfilePageEl(profile,official,posts,profile.addr===S.addr));
+      res.appendChild(buildProfilePageEl(profile,official,posts,profile.addr===S.addr,postCache));
       return;
     }
     if(isAddr(q)){
@@ -2044,8 +2081,10 @@ async function runExploreSearch(query){
       const official=await isOfficial(profile||{});
       if(isBlockedAddr(q)) throw new Error('This address is blocked');
       const posts=blockFilterRows(await fetchMessages(q));
+      const seed=profile?.addr?{[profile.addr]:profile}:{};
+      const postCache=await buildSenderProfileCache(posts,seed);
       clr(res);
-      res.appendChild(buildProfilePageEl(profile||{addr:q,displayName:shortAddr(q),image:'',bio:'',urn:'',urls:{},loc:{}},official,posts,q===S.addr));
+      res.appendChild(buildProfilePageEl(profile||{addr:q,displayName:shortAddr(q),image:'',bio:'',urn:'',urls:{},loc:{}},official,posts,q===S.addr,postCache));
       return;
     }
     if(TXID_RE.test(q)){
@@ -2053,17 +2092,19 @@ async function runExploreSearch(query){
       if(!root) throw new Error('Transaction not found');
       if(isBlockedAddr(root.fromAddr)) throw new Error('This post is from a blocked address');
       clr(res);
-      res.appendChild(buildTweetEl(root,{}));
       // load thread
+      let filtered=[];
       try{
         const replies=await fetchMessages(await kwAddr(q.toLowerCase()),50);
-        const filtered=replies.filter(r=>r.txId&&r.txId!==q.toLowerCase());
-        if(filtered.length){
-          const hdr=document.createElement('div');hdr.innerHTML=`<div style="padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border);">${plural(filtered.length,'reply')}</div>`;
-          res.appendChild(hdr);
-          blockFilterRows(filtered).forEach(r=>res.appendChild(buildTweetEl(r,{})));
-        }
+        filtered=blockFilterRows(replies.filter(r=>r.txId&&r.txId!==q.toLowerCase()));
       }catch{}
+      const txCache=await buildSenderProfileCache([root,...filtered],{});
+      res.appendChild(buildTweetEl(root,{profileCache:txCache}));
+      if(filtered.length){
+        const hdr=document.createElement('div');hdr.innerHTML=`<div style="padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border);">${plural(filtered.length,'reply')}</div>`;
+        res.appendChild(hdr);
+        filtered.forEach(r=>res.appendChild(buildTweetEl(r,{profileCache:txCache})));
+      }
       return;
     }
     if(q.startsWith('#')){
@@ -2074,8 +2115,9 @@ async function runExploreSearch(query){
       const hdr=document.createElement('div');
       hdr.innerHTML=`<div style="padding:14px 16px;border-bottom:1px solid var(--border);"><span style="font-size:1.2rem;font-weight:700;">${esc(q)}</span><div style="color:var(--muted);font-size:.85rem;">${plural(msgs.length,'post')}</div></div>`;
       res.appendChild(hdr);
+      const msgCache=await buildSenderProfileCache(msgs,{});
       if(!msgs.length){res.innerHTML+='<div class="feed-empty">No posts for this tag yet.</div>';}
-      else msgs.forEach(r=>res.appendChild(buildTweetEl(r,{})));
+      else msgs.forEach(r=>res.appendChild(buildTweetEl(r,{profileCache:msgCache})));
       return;
     }
     // text search
@@ -2102,7 +2144,9 @@ async function runExploreSearch(query){
     if(rts.length){
       const hdr=document.createElement('div');hdr.innerHTML=`<div style="padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border);">Posts</div>`;
       res.appendChild(hdr);
-      blockFilterRows(rts.map(r=>normalizeRoot(r?.Root||r?.root||r)).filter(Boolean)).forEach(r=>res.appendChild(buildTweetEl(r,{})));
+      const roots=blockFilterRows(rts.map(r=>normalizeRoot(r?.Root||r?.root||r)).filter(Boolean));
+      const rootCache=await buildSenderProfileCache(roots,{});
+      roots.forEach(r=>res.appendChild(buildTweetEl(r,{profileCache:rootCache})));
     }
   }catch(e){res.innerHTML=`<div class="feed-err">Search error: ${esc(e.message)}</div>`;}
 }
