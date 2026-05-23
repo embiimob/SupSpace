@@ -1196,31 +1196,32 @@ async function getBalance(addr){
 
 function normalizeProfile(raw,fallbackAddr=''){
   if(!raw||typeof raw!=='object') return null;
-  const creators=Array.isArray(raw.Creators)?raw.Creators.filter(x=>typeof x==='string'):Object.keys(raw.Creators||{}).filter(k=>k!=='0');
-  const addr=fallbackAddr||norm(raw.Address||raw._address||creators[0]||'');
+  const p = raw.profile || raw;
+  const creators=Array.isArray(p.Creators)?p.Creators.filter(x=>typeof x==='string'):Object.keys(p.Creators||{}).filter(k=>k!=='0');
+  const addr=fallbackAddr||norm(raw.address||p.Address||p._address||creators[0]||'');
   return{
     addr,creators,
-    urn:norm(raw.URN||raw.urn||raw.DisplayName||''),
-    displayName:norm(raw.DisplayName||raw.URN||raw.urn||addr||'Unknown'),
-    bio:norm(raw.Bio||raw.bio||''),
-    image:norm(raw.Image||raw.IMG||raw.img||raw.image||raw.ProfileImage||raw.profileImage||raw.profileImageUrl||raw.ImageUrl||''),
-    createdDate:raw.CreatedDate||raw['Created Date']||raw.createdDate||'',
-    changedDate:raw.ChangedDate||raw['Changed Date']||raw.changedDate||'',
-    firstName:norm(raw.FirstName||raw.fnm||''),
-    middleName:norm(raw.MiddleName||raw.mnm||''),
-    lastName:norm(raw.LastName||raw.lnm||''),
-    suffix:norm(raw.Suffix||raw.sfx||''),
-    pkx:norm(raw.PublicKeyX||raw.pkx||''),
-    pky:norm(raw.PublicKeyY||raw.pky||''),
-    urls:raw.URL||raw.Url||raw.url||{},
-    loc:raw.Location||raw.Loc||raw.loc||{},
+    urn:norm(p.URN||p.urn||p.DisplayName||''),
+    displayName:norm(p.DisplayName||p.URN||p.urn||addr||'Unknown'),
+    bio:norm(p.Bio||p.bio||''),
+    image:norm(p.Image||p.IMG||p.img||p.image||p.ProfileImage||p.profileImage||p.profileImageUrl||p.ImageUrl||''),
+    createdDate:p.CreatedDate||p['Created Date']||p.createdDate||'',
+    changedDate:p.ChangedDate||p['Changed Date']||p.changedDate||'',
+    firstName:norm(p.FirstName||p.fnm||''),
+    middleName:norm(p.MiddleName||p.mnm||''),
+    lastName:norm(p.LastName||p.lnm||''),
+    suffix:norm(p.Suffix||p.sfx||''),
+    pkx:norm(p.PublicKeyX||p.pkx||''),
+    pky:norm(p.PublicKeyY||p.pky||''),
+    urls:p.URL||p.Url||p.url||{},
+    loc:p.Location||p.Loc||p.loc||{},
   };
 }
 function normalizeRoot(raw){
   if(!raw||typeof raw!=='object') return null;
   const rawMsg=raw.Message??raw['Message']??'';
   const message=Array.isArray(rawMsg)?rawMsg.join('\n'):String(rawMsg??'');
-  const signedBy=norm(raw['Signed By']??raw.SignedBy??'');
+  const signedBy=norm(raw['Signed By']??raw.SignedBy??raw.FromAddress??'');
   const blockDate=raw['Block Date']??raw.BlockDate??'';
   const txId=norm(raw['Transaction Id']??raw.TransactionId??raw['Transaction ID']??'').toLowerCase();
   const outputObj=raw.Output??raw['Output']??{};
@@ -2067,25 +2068,47 @@ async function renderSidebarList(){
   }
 }
 
+let communityCacheLock = false;
+
 async function refreshCommunityCache({force=false}={}){
+  if (communityCacheLock) return S.communityCache?.posts || [];
   const addrs=[...S.followed].filter(a=>!isBlockedAddr(a));
   const followedKey=[...addrs].sort().join('|');
   const freshMs=5*60*1000;
   if(!force&&Date.now()-Number(S.communityCache?.ts||0)<freshMs&&norm(S.communityCache?.followedKey)===followedKey) return S.communityCache.posts||[];
+
   if(!addrs.length){S.communityCache={ts:Date.now(),posts:[],followedKey:''};saveSocialState();return[];}
-  const gathered=[];const batch=3;
-  for(let i=0;i<addrs.length;i+=batch){
-    const chunk=addrs.slice(i,i+batch);
-    const parts=await Promise.all(chunk.map(addr=>fetchMessages(addr,20).catch(()=>[])));
-    gathered.push(...parts.flat());
-    if(i+batch<addrs.length) await new Promise(r=>setTimeout(r,180));
+
+  communityCacheLock = true;
+  try {
+    // If the user is following a very large number of addresses, we need to limit the size to avoid completely overwhelming the API
+    const maxAddresses = 1000;
+    const targetAddrs = addrs.slice(0, maxAddresses);
+
+    const gathered=[];
+    const batch=10; // Batch 10 requests at a time
+    for(let i=0;i<targetAddrs.length;i+=batch){
+      const chunk=targetAddrs.slice(i,i+batch);
+      // Limit to fetching the 10 most recent messages from each address for the community feed to prevent excessive processing
+      const parts=await Promise.all(chunk.map(addr=>fetchMessages(addr, 10).catch(()=>[])));
+      gathered.push(...parts.flat());
+      // Introduce a rate limiting delay between batches (e.g. 500ms)
+      if(i+batch<targetAddrs.length) await new Promise(r=>setTimeout(r,500));
+    }
+    const byTx=new Map();
+    blockFilterRows(gathered.map(asRoot).filter(Boolean)).forEach(r=>{if(r?.txId) byTx.set(r.txId,r);});
+
+    // Sort and only cache the 200 most recent items as requested by user ("top 200 messages from every person you follow")
+    const posts=[...byTx.values()]
+      .sort((a,b)=>new Date(b.blockDate||0)-new Date(a.blockDate||0))
+      .slice(0, 200);
+
+    S.communityCache={ts:Date.now(),posts,followedKey};
+    saveSocialState();
+    return posts;
+  } finally {
+    communityCacheLock = false;
   }
-  const byTx=new Map();
-  blockFilterRows(gathered.map(asRoot).filter(Boolean)).forEach(r=>{if(r?.txId) byTx.set(r.txId,r);});
-  const posts=[...byTx.values()].sort((a,b)=>new Date(b.blockDate||0)-new Date(a.blockDate||0));
-  S.communityCache={ts:Date.now(),posts,followedKey};
-  saveSocialState();
-  return posts;
 }
 async function loadCommunityFeed(){
   const feed=$('communityFeed');if(!feed) return;
@@ -2258,33 +2281,7 @@ window.openProfileTarget=function(urnOrAddr,mode='modal'){
   return openUserProfile(urnOrAddr);
 };
 window.openUserProfile=async function(urnOrAddr){
-  const nm=$('profModalName'),pc=$('profModalPostCount'),body=$('profModalBody');
-  if(!nm||!pc||!body) return;
-  nm.textContent='Loading…';pc.textContent='';clr(body);
-  openModal('modalProfile');
-  try{
-    let profile;
-    if(isAddr(urnOrAddr)) profile=await fetchProfileByAddr(urnOrAddr);
-    else profile=await fetchProfileByURN(urnOrAddr);
-    if(!profile?.addr) throw new Error('Profile not found');
-    if(isBlockedAddr(profile.addr)){
-      nm.textContent=profile.displayName||shortAddr(profile.addr);
-      pc.textContent='Blocked';
-      body.innerHTML=`<div class="feed-empty">This address is blocked.<div style="margin-top:12px;"><button class="btn btn-out btn-sm" onclick="toggleBlockAddr('${esc(profile.addr)}')">Unblock</button></div></div>`;
-      return;
-    }
-    const official=await isOfficial(profile);
-    const posts=blockFilterRows(await fetchMessages(profile.addr,25));
-    const seed={};
-    if(profile?.addr){
-      seed[profile.addr]=profile;
-      seed[profile.addr.toLowerCase()]=profile;
-    }
-    const postCache=await buildSenderProfileCache(posts,seed);
-    nm.textContent=profile.displayName||shortAddr(profile.addr);
-    pc.textContent=plural(posts.length,'post');
-    body.replaceChildren(buildProfilePageEl(profile,official,posts,profile.addr===S.addr,postCache));
-  }catch(e){body.innerHTML=`<div class="feed-err">${esc(e.message)}</div>`;}
+  return openProfileInMainThread(urnOrAddr);
 };
 async function openPostDetail(txid){
   const body=$('postDetailBody');if(!body) return;
