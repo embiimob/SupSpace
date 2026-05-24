@@ -16,7 +16,7 @@
     }
     *{box-sizing:border-box;margin:0;padding:0}
     html{scroll-behavior:smooth}
-    body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;min-height:100vh}
+    body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;min-height:100vh;overflow-x:hidden}
     a{color:var(--accent);text-decoration:none}
     a:hover{text-decoration:underline}
     button{font:inherit;cursor:pointer}
@@ -26,13 +26,17 @@
     /* ── LAYOUT ── */
     .layout{max-width:1270px;margin:0 auto;display:grid;grid-template-columns:275px 1fr 350px;min-height:100vh;align-items:start}
     @media(max-width:1180px){.layout{grid-template-columns:88px 1fr 350px}.nav-label,.brand-text,.wallet-mini-detail{display:none}}
-    @media(max-width:900px){.layout{grid-template-columns:68px 1fr}.r-sidebar{display:none}}
-    @media(max-width:600px){
+    @media(max-width:900px){
       .layout{grid-template-columns:1fr}
+      .r-sidebar{display:none}
+      .main-col{border-right:none}
       .l-sidebar{position:fixed;bottom:0;left:0;right:0;height:54px;z-index:100;flex-direction:row;padding:0 8px;justify-content:space-around;border-top:1px solid var(--border);border-right:none;background:var(--bg)}
       .brand,.btn-new-post,.wallet-mini{display:none}
       .fab{display:flex!important}
-      .nav-item{flex-direction:column;gap:2px;padding:6px 10px;font-size:.6rem}
+      .nav-links{flex-direction:row;align-items:center;justify-content:space-around;gap:0}
+      .nav-item{flex:1;width:auto;justify-content:center;flex-direction:column;gap:2px;padding:6px 8px;font-size:.6rem}
+      body{padding-bottom:54px}
+      .mobile-social-card{display:block}
     }
 
     /* ── LEFT SIDEBAR ── */
@@ -158,6 +162,7 @@
     .social-item-sub{font-size:.74rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .tiny-link-btn{background:none;border:none;color:var(--accent);font-size:.8rem;padding:6px 0 0;cursor:pointer}
     .tiny-link-btn:hover{text-decoration:underline}
+    .mobile-social-card{display:none;background:var(--surface);border-radius:16px;padding:16px;margin:12px 16px}
 
     /* ── FAB ── */
     .fab{display:none;position:fixed;bottom:72px;right:16px;width:56px;height:56px;border-radius:50%;background:var(--accent);border:none;color:#fff;font-size:1.5rem;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(0,0,0,.5);z-index:50;transition:background .15s}
@@ -325,6 +330,14 @@
     <div class="view" id="viewCommunity">
       <div class="col-header">
         <div class="col-header-inner"><span class="col-title">Community</span></div>
+      </div>
+      <div class="mobile-social-card">
+        <div class="sidebar-card-title" id="mobileSidebarListTitle">Following / Friends</div>
+        <div class="btn-row" style="margin-bottom:8px;">
+          <button class="btn btn-out btn-sm" onclick="setSidebarMode('trending')">Trending</button>
+          <button class="btn btn-out btn-sm" onclick="setSidebarMode('follows')">Following</button>
+        </div>
+        <div id="mobileTrendingContent"><div class="trend-n">Loading…</div></div>
       </div>
       <div id="communityFeed"><div class="feed-loading"><div class="spinner"></div>Loading community feed…</div></div>
     </div>
@@ -2230,11 +2243,19 @@ async function loadTrending(rootsFallback=[]){
   });
 }
 
+function syncMobileSidebarList(){
+  const title=$('sidebarListTitle'),tc=$('trendingContent');
+  const mt=$('mobileSidebarListTitle'),mc=$('mobileTrendingContent');
+  if(!title||!tc||!mt||!mc) return;
+  mt.textContent=title.textContent;
+  mc.innerHTML=tc.innerHTML;
+}
+
 async function renderSidebarList(){
   const tc=$('trendingContent'),title=$('sidebarListTitle');
   if(!tc||!title) return;
   const token=++S.sidebarRenderToken;
-  if(S.sidebarMode==='trending'){title.textContent='Trending';await loadTrending((S.communityCache?.posts||[]).map(asRoot).filter(Boolean));return;}
+  if(S.sidebarMode==='trending'){title.textContent='Trending';await loadTrending((S.communityCache?.posts||[]).map(asRoot).filter(Boolean));syncMobileSidebarList();return;}
   const addrs=S.sidebarMode==='blocked'?[...S.blocked]:[...S.followed];
   title.textContent=S.sidebarMode==='blocked'?'Blocked addresses':'Following / Friends';
   clr(tc);
@@ -2244,6 +2265,7 @@ async function renderSidebarList(){
     row.style.cssText='padding-top:4px;';
     row.innerHTML=`<button class="tiny-link-btn" onclick="setSidebarMode('${S.sidebarMode==='blocked'?'follows':'blocked'}')">${S.sidebarMode==='blocked'?'Back to friends':'Blocked'}</button>`;
     tc.appendChild(row);
+    syncMobileSidebarList();
     return;
   }
   const rows=await Promise.all(addrs.map(async addr=>{
@@ -2274,6 +2296,7 @@ async function renderSidebarList(){
     row.innerHTML='<button class="tiny-link-btn" onclick="setSidebarMode(\'follows\')">Back to friends</button>';
     tc.appendChild(row);
   }
+  syncMobileSidebarList();
 }
 
 let communityCacheLock = false;
