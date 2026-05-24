@@ -286,8 +286,8 @@
       <div class="col-header">
         <div class="col-header-inner"><span class="col-title">Home</span></div>
         <div class="tab-bar">
-          <button class="tab-btn active">For you</button>
-          <button class="tab-btn">Recent</button>
+          <button class="tab-btn" id="homeTabTrending" onclick="setHomeTab('trending')">For you</button>
+          <button class="tab-btn active" id="homeTabRecent" onclick="setHomeTab('recent')">Recent</button>
         </div>
       </div>
       <div class="inline-compose hidden" id="inlineCompose">
@@ -582,8 +582,49 @@ const S = {
   normalizedImg: '',
   handleCheck: null,
   feedLoaded: false,
+  homeTab: 'recent',
   lastChangeOutputAddr: '',
+  pendingTxs: new Map(), // txid -> { type: 'post'|'profile', status: 'broadcasting'|'confirming', root: null|object }
 };
+
+/* ═══════════════════════════════════════════════════
+   PENDING TX POLLER
+═══════════════════════════════════════════════════ */
+function startPendingTxPoller() {
+  setInterval(async () => {
+    if (S.pendingTxs.size === 0) return;
+    let needsRender = false;
+    for (const [txid, pTx] of S.pendingTxs.entries()) {
+      try {
+        const root = await fetchSingleRoot(txid).catch(()=>null);
+        if (root) {
+          if (!root.blockDate || root.blockDate.startsWith('1970')) {
+            if (pTx.status !== 'confirming') {
+              pTx.status = 'confirming';
+              pTx.root = root;
+              needsRender = true;
+            }
+          } else {
+            // It's fully confirmed
+            S.pendingTxs.delete(txid);
+            needsRender = true;
+
+            // If it was a profile update, update the cache
+            if (pTx.type === 'profile') {
+               try{S.myProfile=await fetchProfileByAddr(S.addr);updateWalletMini();if(S.view==='myprofile')loadMyProfile();}catch{}
+            }
+          }
+        }
+      } catch (e) {}
+    }
+    if (needsRender) {
+      if (S.view === 'home') loadHomeFeed();
+      if (S.view === 'myprofile') loadMyProfile();
+      if (S.view === 'community') loadCommunityFeed();
+    }
+  }, 15000);
+}
+startPendingTxPoller();
 
 /* ═══════════════════════════════════════════════════
    UTILITY
@@ -1421,6 +1462,15 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
     else if(preview&&info.kind==='video') mediaHtml.push(`<div class="tweet-media"><video controls ${attrs} style="width:100%"></video></div>`);
     else if(preview) mediaHtml.push(`<div class="tweet-media-file">📎 <a href="${esc(preview)}" target="_blank" rel="noopener">${esc(tok.slice(0,60))}</a></div>`);
   });
+  const isPending = root.isPending || false;
+  const pendingTxInfo = S.pendingTxs?.get(root.txId);
+  const pendingStatus = pendingTxInfo ? pendingTxInfo.status : (isPending ? 'pending' : '');
+  let pendingBadge = '';
+  if (pendingStatus) {
+    art.style.opacity = '0.7';
+    pendingBadge = `<span class="badge-v badge-unoff" style="margin-left:4px;font-size:0.65rem;">⏳ ${pendingStatus === 'broadcasting' ? 'Broadcasting...' : 'Confirming...'}</span>`;
+  }
+
   art.innerHTML=`
     <img class="tweet-avi" ${aviAttrs} alt="${esc(displayName)}" onclick="openProfileTarget('${esc(profileTarget)}','${profileNavMode}')">
     <div class="tweet-body">
@@ -1428,6 +1478,7 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
         <span class="tweet-name" onclick="openProfileTarget('${esc(profileTarget)}','${profileNavMode}')">${esc(displayName)}</span>
         ${handle?`<span class="tweet-handle">@${esc(handle)}</span>`:''}
         ${root.blockDate?`<span class="tweet-time">· ${fmtRel(root.blockDate)}</span>`:''}
+        ${pendingBadge}
       </div>
       <div class="tweet-text">${annotateText(cleanText||'')}</div>
       ${poll?renderPollCardHtml(root.txId,poll):''}
@@ -1461,6 +1512,19 @@ function buildProfilePageEl(profile, official, posts=[], ownProfile=false, extra
   const followed=S.followed.has(profile.addr);
   const linksHtml=Object.entries(profile.urls||{}).map(([k,v])=>`<a href="${esc(v)}" target="_blank" rel="noopener" style="color:var(--accent);">🔗 ${esc(k)}</a>`).join(' ');
   const locHtml=Object.values(profile.loc||{}).join(', ');
+
+  let pendingBadge = '';
+  if (profile.isPending) {
+    let pStatus = 'Confirming...';
+    for (const [txid, pTx] of S.pendingTxs.entries()) {
+      if (pTx.type === 'profile' && pTx.root && pTx.root.fromAddr === profile.addr) {
+        pStatus = pTx.status === 'broadcasting' ? 'Broadcasting...' : 'Confirming...';
+        break;
+      }
+    }
+    pendingBadge = `<span class="badge-v badge-unoff" style="margin-left:8px;">⏳ Update ${pStatus}</span>`;
+  }
+
   wrap.innerHTML=`
     <div class="profile-banner"></div>
     <div style="position:relative;">
@@ -1472,7 +1536,7 @@ function buildProfilePageEl(profile, official, posts=[], ownProfile=false, extra
         </div></div>`}
     </div>
     <div class="profile-info">
-      <div class="profile-name">${esc(profile.displayName)}</div>
+      <div class="profile-name">${esc(profile.displayName)} ${pendingBadge}</div>
       ${profile.urn?`<div class="profile-handle">@${esc(profile.urn)} <span class="${official?'badge-v':'badge-v badge-unoff'}">${official?'✓ Official':'! Not official'}</span></div>`:
         `<div class="profile-handle mono">${esc(profile.addr)}</div>`}
       ${profile.bio?`<div class="profile-bio">${esc(profile.bio)}</div>`:''}
@@ -1583,7 +1647,18 @@ function updateWalletMini(){
     const avi=$('walletMiniAvi'),nm=$('walletMiniName'),ad=$('walletMiniAddr');
     if(S.myProfile&&avi){const cands=profileImgCandidates(S.myProfile.image);if(cands.length){avi.src=cands[0];avi.dataset.cands=JSON.stringify([...cands.slice(1),FALLBACK_AVI]);avi.onerror=()=>window.pi_err(avi);}else avi.src=FALLBACK_AVI;}
     else if(avi) avi.src=FALLBACK_AVI;
-    if(nm) nm.textContent=S.myProfile?.displayName||shortAddr(S.addr);
+    let pendingBadge = '';
+    if (S.myProfile?.isPending) {
+      let pStatus = 'Confirming...';
+      for (const [txid, pTx] of S.pendingTxs.entries()) {
+        if (pTx.type === 'profile' && pTx.root && pTx.root.fromAddr === S.addr) {
+          pStatus = pTx.status === 'broadcasting' ? 'Broadcasting...' : 'Confirming...';
+          break;
+        }
+      }
+      pendingBadge = ` <span class="badge-v badge-unoff" style="font-size:0.6rem;padding:2px 4px;">⏳ ${pStatus}</span>`;
+    }
+    if(nm) nm.innerHTML=(S.myProfile?.displayName?esc(S.myProfile.displayName):shortAddr(S.addr)) + pendingBadge;
     if(ad) ad.textContent=shortAddr(S.addr);
   }
   // also update inline compose avi with cascade
@@ -1819,10 +1894,38 @@ async function broadcastProfileTx(){
     showStatus(st,`Broadcasting ${outputs.length} outputs…`,'info');
     const txid=await broadcastTx(outputs);
     showStatus(st,`Profile broadcast! txid: ${txid}`,'good');
-    // refresh profile cache
-    setTimeout(async()=>{
-      try{S.myProfile=await fetchProfileByAddr(S.addr);updateWalletMini();if(S.view==='myprofile')loadMyProfile();}catch{}
-    },4000);
+
+    // Check if there is already a profile and update it with pending fields, or create a mock pending profile
+    let updatedProfile = {};
+    try {
+       const existing = await fetchJ(`${API_BASE}/GetProfileByAddress/${encodeURIComponent(S.addr)}?mainnet=false`);
+       updatedProfile = normalizeProfile(Array.isArray(existing)?existing[0]:existing, S.addr) || {};
+    } catch(e) {}
+
+    // Create optimistic profile root and register pending tx
+    updatedProfile.addr = S.addr;
+    updatedProfile.isPending = true;
+    if(!updatedProfile.displayName && updatedProfile.urn) updatedProfile.displayName = updatedProfile.urn;
+
+    const optimisticRoot = {
+      message: '',
+      fromAddr: S.addr,
+      toAddrs: [],
+      blockDate: '',
+      txId: txid,
+      files: [],
+      raw: {},
+      isPending: true
+    };
+    S.pendingTxs.set(txid, { type: 'profile', status: 'broadcasting', root: optimisticRoot });
+
+    S.profileCache.set(`a:${S.addr}`, updatedProfile);
+    S.myProfile = updatedProfile;
+
+    updateWalletMini();
+    if(S.view==='myprofile') loadMyProfile();
+
+    setTimeout(()=>closeModal('modalProfileEdit'), 1500);
   }catch(e){showStatus(st,e.message||'Broadcast failed','danger');}
 }
 
@@ -1891,6 +1994,24 @@ async function submitCompose(){
     if(st)st.textContent=`Broadcasting ${outputs.length} outputs…`;
     const txid=await broadcastTx(outputs);
     if(st)st.textContent=`Posted! ${txid}`;
+
+    // Create optimistic root and register pending tx
+    const optimisticRoot = {
+      message: text,
+      fromAddr: S.addr,
+      toAddrs: [],
+      blockDate: '',
+      txId: txid,
+      files: [],
+      raw: {},
+      isPending: true
+    };
+    S.pendingTxs.set(txid, { type: 'post', status: 'broadcasting', root: optimisticRoot });
+
+    if (S.view === 'home') loadHomeFeed();
+    if (S.view === 'myprofile') loadMyProfile();
+    if (S.view === 'community') loadCommunityFeed();
+
     // clear
     const cb=$('cmBody');if(cb){cb.value='';autoResize(cb);}
     $('cmTxid')&&($('cmTxid').value='');$('cmRecipients')&&($('cmRecipients').value='');
@@ -1908,7 +2029,25 @@ async function submitInlinePost(){
   try{
     const text=sanitize(ta.value);
     const outputs=await buildMsgOutputs({text,attachments:[],extras:[],fromAddr:S.addr});
-    await broadcastTx(outputs);
+    const txid=await broadcastTx(outputs);
+
+    // Create optimistic root and register pending tx
+    const optimisticRoot = {
+      message: text,
+      fromAddr: S.addr,
+      toAddrs: [],
+      blockDate: '',
+      txId: txid,
+      files: [],
+      raw: {},
+      isPending: true
+    };
+    S.pendingTxs.set(txid, { type: 'post', status: 'broadcasting', root: optimisticRoot });
+
+    if (S.view === 'home') loadHomeFeed();
+    if (S.view === 'myprofile') loadMyProfile();
+    if (S.view === 'community') loadCommunityFeed();
+
     ta.value='';autoResize(ta);
   }catch(e){alert(e.message||'Post failed');}
   finally{if(btn)btn.disabled=false;}
@@ -1965,29 +2104,76 @@ async function loadMyProfile(){
   }catch(e){c.innerHTML=`<div class="feed-err">Error loading profile: ${esc(e.message)}</div>`;}
 }
 
+window.setHomeTab = function(tab) {
+  S.homeTab = tab;
+  document.getElementById('homeTabTrending').classList.toggle('active', tab === 'trending');
+  document.getElementById('homeTabRecent').classList.toggle('active', tab === 'recent');
+  loadHomeFeed();
+};
+
 async function loadHomeFeed(){
   const feed=$('homeFeed');if(!feed) return;
-  feed.innerHTML='<div class="feed-loading"><div class="spinner"></div>Loading recent posts…</div>';
+  feed.innerHTML='<div class="feed-loading"><div class="spinner"></div>Loading posts…</div>';
   S.feedLoaded=true;
   try{
-    // Load trending/recent messages
-    const[prs,rts]=await Promise.all([
-      searchProfiles('',6).catch(()=>[]),
-      searchRoots('',20).catch(()=>[])
-    ]);
+    let prs=[], rts=[];
+    if (S.homeTab === 'trending') {
+      const tcData = await fetchJ(`${API_BASE}/GetTrendingRootSearches?qty=3`,10000).catch(()=>[]);
+      const rows=Array.isArray(tcData)?tcData:[];
+      const trends = rows.map(r=>norm(r?.searchString||r?.keyword||'')).filter(Boolean).slice(0, 3);
+      if(trends.length) {
+        const trendProms = trends.map(t=>searchRoots(t, 10));
+        const allTrendRoots = await Promise.all(trendProms);
+        rts = allTrendRoots.flat().sort((a,b)=>new Date(b?.Root?.BlockDate||b?.root?.BlockDate||0) - new Date(a?.Root?.BlockDate||a?.root?.BlockDate||0)).slice(0, 20);
+      } else {
+        const fallback = await searchRoots('', 20).catch(()=>[]);
+        rts = fallback;
+      }
+    } else {
+      // Recent tab
+      const res = await Promise.all([
+        searchProfiles('',6).catch(()=>[]),
+        searchRoots('',20).catch(()=>[])
+      ]);
+      prs = res[0];
+      rts = res[1];
+    }
+
     // build profile cache for senders
     const profileCache={};
     if(S.myProfile) profileCache[S.myProfile.addr]=S.myProfile;
     clr(feed);
     if(!rts.length&&!prs.length){feed.innerHTML='<div class="feed-empty">No posts found. Be the first to post!</div>';return;}
     // render roots — unwrap Root wrapper if present (format varies by endpoint)
-    const roots=blockFilterRows(rts.map(raw=>normalizeRoot(raw?.Root||raw?.root||raw)).filter(Boolean));
-    if(!roots.length){feed.innerHTML='<div class="feed-empty">No recent posts found.</div>';return;}
+    let roots=blockFilterRows(rts.map(raw=>normalizeRoot(raw?.Root||raw?.root||raw)).filter(Boolean));
+
+    // Process pending messages
+    let pendingRoots = [];
+    if (S.pendingTxs && S.pendingTxs.size > 0) {
+      const rootTxIds = new Set(roots.map(r => r.txId));
+      for (const [txid, pTx] of S.pendingTxs.entries()) {
+        if (pTx.type === 'post' && pTx.root && !rootTxIds.has(txid)) {
+          pendingRoots.push(pTx.root);
+        } else if (pTx.type === 'post' && rootTxIds.has(txid)) {
+          S.pendingTxs.delete(txid);
+        }
+      }
+    }
+
+    if(!roots.length && !pendingRoots.length){feed.innerHTML='<div class="feed-empty">No recent posts found.</div>';return;}
     // Batch-fetch profiles for unique senders so tweet cards show names & avatars
-    const senderAddrs=[...new Set(roots.map(r=>r.fromAddr).filter(Boolean))].slice(0,15);
+    const allAddrs = [...pendingRoots.map(r=>r.fromAddr), ...roots.map(r=>r.fromAddr)];
+    const senderAddrs=[...new Set(allAddrs.filter(Boolean))].slice(0,15);
     await Promise.allSettled(senderAddrs.map(addr=>
       fetchProfileByAddr(addr).then(p=>{if(p&&p.addr) profileCache[p.addr]=p;}).catch(()=>{})
     ));
+
+    // render pending roots first
+    pendingRoots.forEach(root=>{
+      const el=buildTweetEl(root,{profileCache});
+      feed.appendChild(el);
+    });
+
     roots.forEach(root=>{
       const el=buildTweetEl(root,{profileCache});
       feed.appendChild(el);
