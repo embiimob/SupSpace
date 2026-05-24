@@ -25,7 +25,12 @@
 
     /* ── LAYOUT ── */
     .layout{max-width:1270px;margin:0 auto;display:grid;grid-template-columns:275px 1fr 350px;min-height:100vh;align-items:start}
-    @media(max-width:1180px){.layout{grid-template-columns:88px 1fr 350px}.nav-label,.brand-text,.wallet-mini-detail{display:none}}
+    @media(max-width:1180px){
+      .layout{grid-template-columns:88px minmax(0,1fr) 350px}
+      .nav-label,.brand-text,.wallet-mini-detail{display:none}
+      .btn-new-post{width:56px;padding:12px 0;font-size:0;display:flex;align-items:center;justify-content:center}
+      .btn-new-post::before{content:'✎';font-size:1.15rem;line-height:1}
+    }
     @media(max-width:900px){
       .layout{grid-template-columns:1fr}
       .r-sidebar{display:none}
@@ -240,6 +245,20 @@
     .balance-chip{padding:4px 12px;border-radius:9999px;font-size:.8rem;font-weight:600}
     .balance-confirmed{background:var(--good-bg);color:var(--good);border:1px solid rgba(0,186,124,.35)}
     .balance-unconf{background:var(--warn-bg);color:var(--warn);border:1px solid rgba(255,212,0,.35)}
+
+    /* Final responsive overrides (must come after base sidebar/nav rules) */
+    @media(max-width:900px){
+      .layout{grid-template-columns:1fr}
+      .r-sidebar{display:none}
+      .main-col{border-right:none;min-width:0}
+      .l-sidebar{position:fixed;top:auto;bottom:0;left:0;right:0;height:54px;min-height:54px;z-index:100;flex-direction:row;padding:0 8px;justify-content:space-around;border-top:1px solid var(--border);border-right:none;background:var(--bg);overflow:hidden}
+      .brand,.btn-new-post,.wallet-mini{display:none}
+      .fab{display:flex!important}
+      .nav-links{display:flex;flex-direction:row;align-items:center;justify-content:space-around;gap:0;width:100%}
+      .nav-item{flex:1;width:auto;justify-content:center;flex-direction:column;gap:2px;padding:6px 8px;font-size:.6rem}
+      body{padding-bottom:54px}
+      .mobile-social-card{display:block}
+    }
   </style>
 </head>
 <body>
