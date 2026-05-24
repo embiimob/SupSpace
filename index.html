@@ -899,40 +899,55 @@ async function broadcastTx(outputs) {
   const totalOut=outSats.reduce((s,o)=>s+o.sat,0);
   const totByAddr=kr.all.reduce((m,sg)=>m.set(sg.addr,0),new Map());
   allUtxos.forEach(u=>totByAddr.set(u.srcAddr,(totByAddr.get(u.srcAddr)||0)+Number(u.value||0)));
-  const chOrdered=(totByAddr.get(cA.addr)||0)>=(totByAddr.get(cB.addr)||0)?[cA,cB]:[cB,cA];
-  const [pref,sec]=chOrdered;
-  const candidates=[];
-  // alternate preferred change-input source when both have funds
-  if((totByAddr.get(cA.addr)||0)>0&&(totByAddr.get(cB.addr)||0)>0&&S.lastChangeOutputAddr){
-    const first=S.lastChangeOutputAddr===cA.addr?cB:cA,second=first===cA?cB:cA;
-    candidates.push(first,second);
-  }else{
-    if((totByAddr.get(pref.addr)||0)>0) candidates.push(pref);
-    if((totByAddr.get(sec.addr)||0)>0) candidates.push(sec);
-  }
-  if((totByAddr.get(kr.main.addr)||0)>0) candidates.push(kr.main);
+  // Select the address with the most funds as the primary candidate
+  const candidates=[kr.main, cA, cB].sort((a,b)=>(totByAddr.get(b.addr)||0)-(totByAddr.get(a.addr)||0));
+
   let selSourceLabel='single-source',sel=null,selUtxos=[],selTotal=0;
-  for(const src of [...new Set(candidates)]){
+  for(const src of candidates){
     const pool=allUtxos.filter(u=>u.srcAddr===src.addr).sort((a,b)=>b.value-a.value);
     let lo=[],lt=0;
-    for(const u of pool){lo.push(u);lt+=u.value;if(lt>=totalOut+estFee(lo.length,outSats.length+1)) break;}
-    if(lo.length&&lt>=totalOut+estFee(lo.length,outSats.length+1)){sel=src;selUtxos=lo;selTotal=lt;break;}
+    for(const u of pool){
+      lo.push(u);
+      lt+=u.value;
+      if(lt>=totalOut+estFee(lo.length,outSats.length+1)){
+        sel=src;
+        selUtxos=lo;
+        selTotal=lt;
+        break;
+      }
+    }
+    if (selUtxos.length) break;
   }
   // fallback: combine UTXOs across all wallet addresses (main + both changes)
-  if(!sel){
+  if(!selUtxos.length){
     const mixPool=[...allUtxos].sort((a,b)=>b.value-a.value);
     let lo=[],lt=0;
-    for(const u of mixPool){lo.push(u);lt+=u.value;if(lt>=totalOut+estFee(lo.length,outSats.length+1)){selUtxos=lo;selTotal=lt;selSourceLabel='mixed-sources';break;}}
+    for(const u of mixPool){
+      lo.push(u);
+      lt+=u.value;
+      if(lt>=totalOut+estFee(lo.length,outSats.length+1)){
+        selUtxos=lo;
+        selTotal=lt;
+        selSourceLabel='mixed-sources';
+        break;
+      }
+    }
   }
-  if(!selUtxos.length) throw new Error('Insufficient funds across main + change addresses');
+  if(!selUtxos.length) throw new Error('Insufficient funds across main + change addresses (including fee estimation)');
   const fee=estFee(selUtxos.length,outSats.length+1);
   const change=selTotal-totalOut-fee;
   if(change<0) throw new Error('Insufficient balance after fee');
-  const usedAddrs=new Set(selUtxos.map(u=>u.srcAddr));
-  let changeAddr=pref.addr;
-  if(usedAddrs.has(cA.addr)&&!usedAddrs.has(cB.addr)) changeAddr=cB.addr;
-  else if(usedAddrs.has(cB.addr)&&!usedAddrs.has(cA.addr)) changeAddr=cA.addr;
-  else if(S.lastChangeOutputAddr) changeAddr=S.lastChangeOutputAddr===cA.addr?cB.addr:cA.addr;
+
+  // Pick a change address: alternate between cA and cB based on input used
+  let changeAddr = cA.addr;
+  if (sel) {
+    if (sel.addr === cA.addr) changeAddr = cB.addr;
+    else if (sel.addr === cB.addr) changeAddr = cA.addr;
+    else changeAddr = S.lastChangeOutputAddr === cA.addr ? cB.addr : cA.addr;
+  } else {
+    // If mixed, just alternate
+    changeAddr = S.lastChangeOutputAddr === cA.addr ? cB.addr : cA.addr;
+  }
   S.lastChangeOutputAddr=changeAddr;
   const finalOuts=[...outSats];
   if(change>=DUST) finalOuts.push({addr:changeAddr,sat:change});
