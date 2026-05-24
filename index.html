@@ -1412,7 +1412,14 @@ async function fetchMessages(addr,qty=25,skip=0){
   return blockFilterRows((Array.isArray(r)?r:[]).map(item=>normalizeRoot(item.Root||item.root||item)).filter(Boolean));
 }
 async function fetchSingleRoot(txid){
-  const r=await fetchJ(`${API_BASE}/GetRootByTransactionID/${encodeURIComponent(txid)}?mainnet=false&verbose=false`,20000);
+  const t=norm(txid).toLowerCase();
+  if(!TXID_RE.test(t)) return null;
+  try{
+    const cached=await fetchJ(`${API_BASE}/root/${encodeURIComponent(t)}/Root.json`,12000);
+    const hit=normalizeRoot(cached?.Root||cached?.root||cached);
+    if(hit?.txId) return hit;
+  }catch{}
+  const r=await fetchJ(`${API_BASE}/GetRootByTransactionID/${encodeURIComponent(t)}?mainnet=false&verbose=false`,20000);
   return normalizeRoot(Array.isArray(r)?r[0]:r);
 }
 async function searchProfiles(q,qty=8,skip=0){
