@@ -1779,6 +1779,10 @@ function renderWalletUI(container, balance=null){
       <button class="btn btn-pri btn-sm" onclick="consolidateChange()">Consolidate</button>
       <button class="btn btn-out btn-sm" onclick="lockWallet()">Lock</button>
       <button class="btn btn-dng btn-sm" onclick="forgetWallet()">Forget key</button>
+    </div>
+    <div class="f-field hidden" id="wifExportFallback" style="margin-bottom:12px;">
+      <label class="f-label">Clipboard blocked — copy your WIF manually</label>
+      <textarea class="f-input mono" id="wifExportBox" rows="3" readonly autocapitalize="off" autocomplete="off" spellcheck="false"></textarea>
     </div>`;
   } else {
     html+=`<div class="f-field"><label class="f-label">WIF private key (testnet3)</label><input class="f-input" id="wWif" type="password" placeholder="c… or 9… testnet3 WIF" autocomplete="off"></div>
@@ -1837,6 +1841,21 @@ function walletMsg(msg,kind='info',preferEl=null){
   const container=activeWalletContainer(preferEl);
   const el=container?.querySelector('#walletMsg')||$('walletMsg');
   if(el) showStatus(el,msg,kind);
+}
+function walletWifFallback(wif='',preferEl=null){
+  const container=activeWalletContainer(preferEl);
+  const wrap=container?.querySelector('#wifExportFallback');
+  const box=container?.querySelector('#wifExportBox');
+  if(!wrap||!box) return;
+  if(wif){
+    box.value=wif;
+    wrap.classList.remove('hidden');
+    box.focus();
+    box.select();
+  }else{
+    box.value='';
+    wrap.classList.add('hidden');
+  }
 }
 
 function updateWalletMini(){
@@ -1941,8 +1960,21 @@ async function unlockWallet(){
 }
 async function exportWif(){
   if(!S.priv) return walletMsg('Unlock wallet first','warn');
-  try{const wif=await priv2wif(S.priv);await navigator.clipboard.writeText(wif);walletMsg('WIF copied to clipboard','good');}
-  catch(e){walletMsg(e.message||'Copy failed','danger');}
+  let wif='';
+  try{
+    wif=await priv2wif(S.priv);
+    if(!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable');
+    await navigator.clipboard.writeText(wif);
+    walletWifFallback('');
+    walletMsg('WIF copied to clipboard','good');
+  }catch(e){
+    if(wif){
+      walletWifFallback(wif);
+      walletMsg('Clipboard unavailable on this device — copy WIF from the box below.','warn');
+      return;
+    }
+    walletMsg(e.message||'Copy failed','danger');
+  }
 }
 function lockWallet(){
   S.priv=null;S.addr='';S.myProfile=null;S.keyring=null;
