@@ -39,7 +39,6 @@
     .l-sidebar{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;border-right:1px solid var(--border);padding:0 12px;overflow-y:auto;gap:0}
     .brand{display:flex;align-items:center;gap:12px;padding:12px;border-radius:9999px;color:var(--text);transition:background .15s;text-decoration:none;margin:4px 0 2px}
     .brand:hover{background:rgba(255,255,255,.08)}
-    .brand-logo{width:34px;height:34px;background:var(--accent);border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;color:#fff;flex-shrink:0}
     .brand-text{font-size:1.2rem;font-weight:800}
     .nav-links{display:flex;flex-direction:column;gap:2px;width:100%}
     .nav-item{display:flex;align-items:center;gap:20px;padding:12px;border-radius:9999px;color:var(--text);background:none;border:none;text-align:left;width:100%;font-size:1.15rem;font-weight:400;transition:background .15s}
@@ -119,10 +118,10 @@
 
     /* ── PROFILE PAGE ── */
     .profile-banner{height:192px;background:linear-gradient(135deg,#1a3a6e,#1d9bf0);position:relative}
-    .profile-avi-wrap{position:absolute;bottom:-56px;left:16px}
+    .profile-avi-wrap{position:absolute;top:16px;left:16px}
     .profile-avi-lg{width:112px;height:112px;border-radius:50%;border:4px solid var(--bg);object-fit:cover;background:#333}
     .profile-top-bar{display:flex;justify-content:flex-end;padding:12px 16px}
-    .profile-info{padding:64px 16px 12px}
+    .profile-info{padding:16px 16px 12px; margin-top:110px}
     .profile-name{font-size:1.2rem;font-weight:700}
     .profile-handle{color:var(--muted);font-size:.93rem;margin-bottom:6px}
     .profile-bio{font-size:.93rem;margin:6px 0}
@@ -242,9 +241,8 @@
 <div class="layout">
   <!-- ── LEFT SIDEBAR ── -->
   <aside class="l-sidebar">
-    <a class="brand" id="btnBrand" href="#" onclick="return false">
-      <div class="brand-logo">S</div>
-      <span class="brand-text">SupSpace</span>
+    <a class="brand" id="btnBrand" href="#" onclick="return false" title="Download uncensored app">
+      <span class="brand-text">SupSpace.io <span style="font-size:0.5rem;vertical-align:super;color:var(--muted);" title="Uncensored">🔓</span></span>
     </a>
     <nav class="nav-links">
       <button class="nav-item active" data-view="home" id="navHome">
@@ -286,8 +284,8 @@
       <div class="col-header">
         <div class="col-header-inner"><span class="col-title">Home</span></div>
         <div class="tab-bar">
-          <button class="tab-btn active">For you</button>
-          <button class="tab-btn">Recent</button>
+          <button class="tab-btn" id="homeTabTrending" onclick="setHomeTab('trending')">For you</button>
+          <button class="tab-btn active" id="homeTabRecent" onclick="setHomeTab('recent')">Recent</button>
         </div>
       </div>
       <div class="inline-compose hidden" id="inlineCompose">
@@ -582,7 +580,9 @@ const S = {
   normalizedImg: '',
   handleCheck: null,
   feedLoaded: false,
+  homeTab: 'recent',
   lastChangeOutputAddr: '',
+  pendingTxs: new Map(), // txid -> { type: 'post'|'profile', status: 'broadcasting'|'confirming', root: null|object }
 };
 
 /* ═══════════════════════════════════════════════════
@@ -899,40 +899,55 @@ async function broadcastTx(outputs) {
   const totalOut=outSats.reduce((s,o)=>s+o.sat,0);
   const totByAddr=kr.all.reduce((m,sg)=>m.set(sg.addr,0),new Map());
   allUtxos.forEach(u=>totByAddr.set(u.srcAddr,(totByAddr.get(u.srcAddr)||0)+Number(u.value||0)));
-  const chOrdered=(totByAddr.get(cA.addr)||0)>=(totByAddr.get(cB.addr)||0)?[cA,cB]:[cB,cA];
-  const [pref,sec]=chOrdered;
-  const candidates=[];
-  // alternate preferred change-input source when both have funds
-  if((totByAddr.get(cA.addr)||0)>0&&(totByAddr.get(cB.addr)||0)>0&&S.lastChangeOutputAddr){
-    const first=S.lastChangeOutputAddr===cA.addr?cB:cA,second=first===cA?cB:cA;
-    candidates.push(first,second);
-  }else{
-    if((totByAddr.get(pref.addr)||0)>0) candidates.push(pref);
-    if((totByAddr.get(sec.addr)||0)>0) candidates.push(sec);
-  }
-  if((totByAddr.get(kr.main.addr)||0)>0) candidates.push(kr.main);
+  // Select the address with the most funds as the primary candidate
+  const candidates=[kr.main, cA, cB].sort((a,b)=>(totByAddr.get(b.addr)||0)-(totByAddr.get(a.addr)||0));
+
   let selSourceLabel='single-source',sel=null,selUtxos=[],selTotal=0;
-  for(const src of [...new Set(candidates)]){
+  for(const src of candidates){
     const pool=allUtxos.filter(u=>u.srcAddr===src.addr).sort((a,b)=>b.value-a.value);
     let lo=[],lt=0;
-    for(const u of pool){lo.push(u);lt+=u.value;if(lt>=totalOut+estFee(lo.length,outSats.length+1)) break;}
-    if(lo.length&&lt>=totalOut+estFee(lo.length,outSats.length+1)){sel=src;selUtxos=lo;selTotal=lt;break;}
+    for(const u of pool){
+      lo.push(u);
+      lt+=u.value;
+      if(lt>=totalOut+estFee(lo.length,outSats.length+1)){
+        sel=src;
+        selUtxos=lo;
+        selTotal=lt;
+        break;
+      }
+    }
+    if (selUtxos.length) break;
   }
   // fallback: combine UTXOs across all wallet addresses (main + both changes)
-  if(!sel){
+  if(!selUtxos.length){
     const mixPool=[...allUtxos].sort((a,b)=>b.value-a.value);
     let lo=[],lt=0;
-    for(const u of mixPool){lo.push(u);lt+=u.value;if(lt>=totalOut+estFee(lo.length,outSats.length+1)){selUtxos=lo;selTotal=lt;selSourceLabel='mixed-sources';break;}}
+    for(const u of mixPool){
+      lo.push(u);
+      lt+=u.value;
+      if(lt>=totalOut+estFee(lo.length,outSats.length+1)){
+        selUtxos=lo;
+        selTotal=lt;
+        selSourceLabel='mixed-sources';
+        break;
+      }
+    }
   }
-  if(!selUtxos.length) throw new Error('Insufficient funds across main + change addresses');
+  if(!selUtxos.length) throw new Error('Insufficient funds across main + change addresses (including fee estimation)');
   const fee=estFee(selUtxos.length,outSats.length+1);
   const change=selTotal-totalOut-fee;
   if(change<0) throw new Error('Insufficient balance after fee');
-  const usedAddrs=new Set(selUtxos.map(u=>u.srcAddr));
-  let changeAddr=pref.addr;
-  if(usedAddrs.has(cA.addr)&&!usedAddrs.has(cB.addr)) changeAddr=cB.addr;
-  else if(usedAddrs.has(cB.addr)&&!usedAddrs.has(cA.addr)) changeAddr=cA.addr;
-  else if(S.lastChangeOutputAddr) changeAddr=S.lastChangeOutputAddr===cA.addr?cB.addr:cA.addr;
+
+  // Pick a change address: alternate between cA and cB based on input used
+  let changeAddr = cA.addr;
+  if (sel) {
+    if (sel.addr === cA.addr) changeAddr = cB.addr;
+    else if (sel.addr === cB.addr) changeAddr = cA.addr;
+    else changeAddr = S.lastChangeOutputAddr === cA.addr ? cB.addr : cA.addr;
+  } else {
+    // If mixed, just alternate
+    changeAddr = S.lastChangeOutputAddr === cA.addr ? cB.addr : cA.addr;
+  }
   S.lastChangeOutputAddr=changeAddr;
   const finalOuts=[...outSats];
   if(change>=DUST) finalOuts.push({addr:changeAddr,sat:change});
@@ -1191,36 +1206,44 @@ async function getBalance(addr){
   if(!r.ok) throw new Error(`Balance lookup failed ${r.status}`);
   const p=await r.json();
   const cs=p?.chain_stats||{},ms=p?.mempool_stats||{};
-  return{confirmed:Number(cs.funded_txo_sum||0)-Number(cs.spent_txo_sum||0),unconfirmed:Number(ms.funded_txo_sum||0)-Number(ms.spent_txo_sum||0)};
+
+  // A balance is only fully confirmed available if mempool isn't actively spending it.
+  // If there's an unconfirmed spent sum, we should subtract it from the confirmed balance
+  // so the user sees their true available balance. The unconfirmed total should just represent incoming funds.
+  const confirmedAvailable = (Number(cs.funded_txo_sum||0)-Number(cs.spent_txo_sum||0)) - Number(ms.spent_txo_sum||0);
+  const unconfirmedIncoming = Number(ms.funded_txo_sum||0);
+
+  return{confirmed:confirmedAvailable,unconfirmed:unconfirmedIncoming};
 }
 
 function normalizeProfile(raw,fallbackAddr=''){
   if(!raw||typeof raw!=='object') return null;
-  const creators=Array.isArray(raw.Creators)?raw.Creators.filter(x=>typeof x==='string'):Object.keys(raw.Creators||{}).filter(k=>k!=='0');
-  const addr=fallbackAddr||norm(raw.Address||raw._address||creators[0]||'');
+  const p = raw.profile || raw;
+  const creators=Array.isArray(p.Creators)?p.Creators.filter(x=>typeof x==='string'):Object.keys(p.Creators||{}).filter(k=>k!=='0');
+  const addr=fallbackAddr||norm(raw.address||p.Address||p._address||creators[0]||'');
   return{
     addr,creators,
-    urn:norm(raw.URN||raw.urn||raw.DisplayName||''),
-    displayName:norm(raw.DisplayName||raw.URN||raw.urn||addr||'Unknown'),
-    bio:norm(raw.Bio||raw.bio||''),
-    image:norm(raw.Image||raw.IMG||raw.img||raw.image||raw.ProfileImage||raw.profileImage||raw.profileImageUrl||raw.ImageUrl||''),
-    createdDate:raw.CreatedDate||raw['Created Date']||raw.createdDate||'',
-    changedDate:raw.ChangedDate||raw['Changed Date']||raw.changedDate||'',
-    firstName:norm(raw.FirstName||raw.fnm||''),
-    middleName:norm(raw.MiddleName||raw.mnm||''),
-    lastName:norm(raw.LastName||raw.lnm||''),
-    suffix:norm(raw.Suffix||raw.sfx||''),
-    pkx:norm(raw.PublicKeyX||raw.pkx||''),
-    pky:norm(raw.PublicKeyY||raw.pky||''),
-    urls:raw.URL||raw.Url||raw.url||{},
-    loc:raw.Location||raw.Loc||raw.loc||{},
+    urn:norm(p.URN||p.urn||p.DisplayName||''),
+    displayName:norm(p.DisplayName||p.URN||p.urn||addr||'Unknown'),
+    bio:norm(p.Bio||p.bio||''),
+    image:norm(p.Image||p.IMG||p.img||p.image||p.ProfileImage||p.profileImage||p.profileImageUrl||p.ImageUrl||''),
+    createdDate:p.CreatedDate||p['Created Date']||p.createdDate||'',
+    changedDate:p.ChangedDate||p['Changed Date']||p.changedDate||'',
+    firstName:norm(p.FirstName||p.fnm||''),
+    middleName:norm(p.MiddleName||p.mnm||''),
+    lastName:norm(p.LastName||p.lnm||''),
+    suffix:norm(p.Suffix||p.sfx||''),
+    pkx:norm(p.PublicKeyX||p.pkx||''),
+    pky:norm(p.PublicKeyY||p.pky||''),
+    urls:p.URL||p.Url||p.url||{},
+    loc:p.Location||p.Loc||p.loc||{},
   };
 }
 function normalizeRoot(raw){
   if(!raw||typeof raw!=='object') return null;
   const rawMsg=raw.Message??raw['Message']??'';
   const message=Array.isArray(rawMsg)?rawMsg.join('\n'):String(rawMsg??'');
-  const signedBy=norm(raw['Signed By']??raw.SignedBy??'');
+  const signedBy=norm(raw['Signed By']??raw.SignedBy??raw.FromAddress??'');
   const blockDate=raw['Block Date']??raw.BlockDate??'';
   const txId=norm(raw['Transaction Id']??raw.TransactionId??raw['Transaction ID']??'').toLowerCase();
   const outputObj=raw.Output??raw['Output']??{};
@@ -1280,6 +1303,45 @@ async function searchProfiles(q,qty=8){
 async function searchRoots(q,qty=12){
   return fetchJ(`${API_BASE}/GetKnownRootsBySearchString?searchString=${encodeURIComponent(q)}&qty=${qty}&skip=0&mainnet=false&showSystemFiles=false`,20000).catch(()=>[]);
 }
+
+/* ═══════════════════════════════════════════════════
+   PENDING TX POLLER
+═══════════════════════════════════════════════════ */
+function startPendingTxPoller() {
+  setInterval(async () => {
+    if (S.pendingTxs.size === 0) return;
+    let needsRender = false;
+    for (const [txid, pTx] of S.pendingTxs.entries()) {
+      try {
+        const root = await fetchSingleRoot(txid).catch(()=>null);
+        if (root) {
+          if (!root.blockDate || root.blockDate.startsWith('1970')) {
+            if (pTx.status !== 'confirming') {
+              pTx.status = 'confirming';
+              pTx.root = root;
+              needsRender = true;
+            }
+          } else {
+            // It's fully confirmed
+            S.pendingTxs.delete(txid);
+            needsRender = true;
+
+            // If it was a profile update, update the cache
+            if (pTx.type === 'profile') {
+               try{S.myProfile=await fetchProfileByAddr(S.addr);updateWalletMini();if(S.view==='myprofile')loadMyProfile();}catch{}
+            }
+          }
+        }
+      } catch (e) {}
+    }
+    if (needsRender) {
+      if (S.view === 'home') loadHomeFeed();
+      if (S.view === 'myprofile') loadMyProfile();
+      if (S.view === 'community') loadCommunityFeed();
+    }
+  }, 15000);
+}
+startPendingTxPoller();
 
 /* parse message body to get clean text, attachments, links */
 function parseMsg(text){
@@ -1405,6 +1467,15 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
     else if(preview&&info.kind==='video') mediaHtml.push(`<div class="tweet-media"><video controls ${attrs} style="width:100%"></video></div>`);
     else if(preview) mediaHtml.push(`<div class="tweet-media-file">📎 <a href="${esc(preview)}" target="_blank" rel="noopener">${esc(tok.slice(0,60))}</a></div>`);
   });
+  const isPending = root.isPending || false;
+  const pendingTxInfo = S.pendingTxs?.get(root.txId);
+  const pendingStatus = pendingTxInfo ? pendingTxInfo.status : (isPending ? 'pending' : '');
+  let pendingBadge = '';
+  if (pendingStatus) {
+    art.style.opacity = '0.7';
+    pendingBadge = `<span class="badge-v badge-unoff" style="margin-left:4px;font-size:0.65rem;">⏳ ${pendingStatus === 'broadcasting' ? 'Broadcasting...' : 'Confirming...'}</span>`;
+  }
+
   art.innerHTML=`
     <img class="tweet-avi" ${aviAttrs} alt="${esc(displayName)}" onclick="openProfileTarget('${esc(profileTarget)}','${profileNavMode}')">
     <div class="tweet-body">
@@ -1412,6 +1483,7 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
         <span class="tweet-name" onclick="openProfileTarget('${esc(profileTarget)}','${profileNavMode}')">${esc(displayName)}</span>
         ${handle?`<span class="tweet-handle">@${esc(handle)}</span>`:''}
         ${root.blockDate?`<span class="tweet-time">· ${fmtRel(root.blockDate)}</span>`:''}
+        ${pendingBadge}
       </div>
       <div class="tweet-text">${annotateText(cleanText||'')}</div>
       ${poll?renderPollCardHtml(root.txId,poll):''}
@@ -1445,8 +1517,21 @@ function buildProfilePageEl(profile, official, posts=[], ownProfile=false, extra
   const followed=S.followed.has(profile.addr);
   const linksHtml=Object.entries(profile.urls||{}).map(([k,v])=>`<a href="${esc(v)}" target="_blank" rel="noopener" style="color:var(--accent);">🔗 ${esc(k)}</a>`).join(' ');
   const locHtml=Object.values(profile.loc||{}).join(', ');
+
+  let pendingBadge = '';
+  if (profile.isPending) {
+    let pStatus = 'Confirming...';
+    for (const [txid, pTx] of S.pendingTxs.entries()) {
+      if (pTx.type === 'profile' && pTx.root && pTx.root.fromAddr === profile.addr) {
+        pStatus = pTx.status === 'broadcasting' ? 'Broadcasting...' : 'Confirming...';
+        break;
+      }
+    }
+    pendingBadge = `<span class="badge-v badge-unoff" style="margin-left:8px;">⏳ Update ${pStatus}</span>`;
+  }
+
   wrap.innerHTML=`
-    <div class="profile-banner"></div>
+
     <div style="position:relative;">
       <div class="profile-avi-wrap"><img class="profile-avi-lg" ${imgAttrs} alt="${esc(profile.displayName)}"></div>
       ${ownProfile?`<div class="profile-top-bar"><button class="btn-edit-profile" onclick="openModal('modalProfileEdit')">Edit profile</button></div>`:
@@ -1456,7 +1541,7 @@ function buildProfilePageEl(profile, official, posts=[], ownProfile=false, extra
         </div></div>`}
     </div>
     <div class="profile-info">
-      <div class="profile-name">${esc(profile.displayName)}</div>
+      <div class="profile-name">${esc(profile.displayName)} ${pendingBadge}</div>
       ${profile.urn?`<div class="profile-handle">@${esc(profile.urn)} <span class="${official?'badge-v':'badge-v badge-unoff'}">${official?'✓ Official':'! Not official'}</span></div>`:
         `<div class="profile-handle mono">${esc(profile.addr)}</div>`}
       ${profile.bio?`<div class="profile-bio">${esc(profile.bio)}</div>`:''}
@@ -1531,8 +1616,10 @@ async function refreshBalance(){
     const total=bals.reduce((acc,b)=>({confirmed:acc.confirmed+(b.confirmed||0),unconfirmed:acc.unconfirmed+(b.unconfirmed||0)}),{confirmed:0,unconfirmed:0});
     // Build per-address detail
     const addrLines=kr.all.map((sg,i)=>{const b=bals[i];return b.confirmed||b.unconfirmed?`<div style="font-size:.75rem;color:var(--muted);margin-top:2px;">${esc(sg.label)}: ${(b.confirmed/1e8).toFixed(8)} confirmed</div>`:''}).join('');
-    const bw=document.querySelector('#walletBalances');
-    if(bw) bw.innerHTML=`<span class="balance-chip balance-confirmed">✓ ${(total.confirmed/1e8).toFixed(8)} tBTC confirmed</span><span class="balance-chip balance-unconf">⏳ ${(total.unconfirmed/1e8).toFixed(8)} tBTC unconfirmed</span>${addrLines}`;
+    const bws=document.querySelectorAll('.wallet-balances, #walletBalances');
+    bws.forEach(bw => {
+      bw.innerHTML=`<span class="balance-chip balance-confirmed">✓ ${(total.confirmed/1e8).toFixed(8)} tBTC confirmed</span><span class="balance-chip balance-unconf">⏳ ${(total.unconfirmed/1e8).toFixed(8)} tBTC unconfirmed</span>${addrLines}`;
+    });
   }catch{}
 }
 function activeWalletContainer(preferEl=null){
@@ -1565,7 +1652,18 @@ function updateWalletMini(){
     const avi=$('walletMiniAvi'),nm=$('walletMiniName'),ad=$('walletMiniAddr');
     if(S.myProfile&&avi){const cands=profileImgCandidates(S.myProfile.image);if(cands.length){avi.src=cands[0];avi.dataset.cands=JSON.stringify([...cands.slice(1),FALLBACK_AVI]);avi.onerror=()=>window.pi_err(avi);}else avi.src=FALLBACK_AVI;}
     else if(avi) avi.src=FALLBACK_AVI;
-    if(nm) nm.textContent=S.myProfile?.displayName||shortAddr(S.addr);
+    let pendingBadge = '';
+    if (S.myProfile?.isPending) {
+      let pStatus = 'Confirming...';
+      for (const [txid, pTx] of S.pendingTxs.entries()) {
+        if (pTx.type === 'profile' && pTx.root && pTx.root.fromAddr === S.addr) {
+          pStatus = pTx.status === 'broadcasting' ? 'Broadcasting...' : 'Confirming...';
+          break;
+        }
+      }
+      pendingBadge = ` <span class="badge-v badge-unoff" style="font-size:0.6rem;padding:2px 4px;">⏳ ${pStatus}</span>`;
+    }
+    if(nm) nm.innerHTML=(S.myProfile?.displayName?esc(S.myProfile.displayName):shortAddr(S.addr)) + pendingBadge;
     if(ad) ad.textContent=shortAddr(S.addr);
   }
   // also update inline compose avi with cascade
@@ -1801,10 +1899,38 @@ async function broadcastProfileTx(){
     showStatus(st,`Broadcasting ${outputs.length} outputs…`,'info');
     const txid=await broadcastTx(outputs);
     showStatus(st,`Profile broadcast! txid: ${txid}`,'good');
-    // refresh profile cache
-    setTimeout(async()=>{
-      try{S.myProfile=await fetchProfileByAddr(S.addr);updateWalletMini();if(S.view==='myprofile')loadMyProfile();}catch{}
-    },4000);
+
+    // Check if there is already a profile and update it with pending fields, or create a mock pending profile
+    let updatedProfile = {};
+    try {
+       const existing = await fetchJ(`${API_BASE}/GetProfileByAddress/${encodeURIComponent(S.addr)}?mainnet=false`);
+       updatedProfile = normalizeProfile(Array.isArray(existing)?existing[0]:existing, S.addr) || {};
+    } catch(e) {}
+
+    // Create optimistic profile root and register pending tx
+    updatedProfile.addr = S.addr;
+    updatedProfile.isPending = true;
+    if(!updatedProfile.displayName && updatedProfile.urn) updatedProfile.displayName = updatedProfile.urn;
+
+    const optimisticRoot = {
+      message: '',
+      fromAddr: S.addr,
+      toAddrs: [],
+      blockDate: '',
+      txId: txid,
+      files: [],
+      raw: {},
+      isPending: true
+    };
+    S.pendingTxs.set(txid, { type: 'profile', status: 'broadcasting', root: optimisticRoot });
+
+    S.profileCache.set(`a:${S.addr}`, updatedProfile);
+    S.myProfile = updatedProfile;
+
+    updateWalletMini();
+    if(S.view==='myprofile') loadMyProfile();
+
+    setTimeout(()=>closeModal('modalProfileEdit'), 1500);
   }catch(e){showStatus(st,e.message||'Broadcast failed','danger');}
 }
 
@@ -1873,6 +1999,24 @@ async function submitCompose(){
     if(st)st.textContent=`Broadcasting ${outputs.length} outputs…`;
     const txid=await broadcastTx(outputs);
     if(st)st.textContent=`Posted! ${txid}`;
+
+    // Create optimistic root and register pending tx
+    const optimisticRoot = {
+      message: text,
+      fromAddr: S.addr,
+      toAddrs: [],
+      blockDate: '',
+      txId: txid,
+      files: [],
+      raw: {},
+      isPending: true
+    };
+    S.pendingTxs.set(txid, { type: 'post', status: 'broadcasting', root: optimisticRoot });
+
+    if (S.view === 'home') loadHomeFeed();
+    if (S.view === 'myprofile') loadMyProfile();
+    if (S.view === 'community') loadCommunityFeed();
+
     // clear
     const cb=$('cmBody');if(cb){cb.value='';autoResize(cb);}
     $('cmTxid')&&($('cmTxid').value='');$('cmRecipients')&&($('cmRecipients').value='');
@@ -1890,7 +2034,25 @@ async function submitInlinePost(){
   try{
     const text=sanitize(ta.value);
     const outputs=await buildMsgOutputs({text,attachments:[],extras:[],fromAddr:S.addr});
-    await broadcastTx(outputs);
+    const txid=await broadcastTx(outputs);
+
+    // Create optimistic root and register pending tx
+    const optimisticRoot = {
+      message: text,
+      fromAddr: S.addr,
+      toAddrs: [],
+      blockDate: '',
+      txId: txid,
+      files: [],
+      raw: {},
+      isPending: true
+    };
+    S.pendingTxs.set(txid, { type: 'post', status: 'broadcasting', root: optimisticRoot });
+
+    if (S.view === 'home') loadHomeFeed();
+    if (S.view === 'myprofile') loadMyProfile();
+    if (S.view === 'community') loadCommunityFeed();
+
     ta.value='';autoResize(ta);
   }catch(e){alert(e.message||'Post failed');}
   finally{if(btn)btn.disabled=false;}
@@ -1947,29 +2109,76 @@ async function loadMyProfile(){
   }catch(e){c.innerHTML=`<div class="feed-err">Error loading profile: ${esc(e.message)}</div>`;}
 }
 
+window.setHomeTab = function(tab) {
+  S.homeTab = tab;
+  document.getElementById('homeTabTrending').classList.toggle('active', tab === 'trending');
+  document.getElementById('homeTabRecent').classList.toggle('active', tab === 'recent');
+  loadHomeFeed();
+};
+
 async function loadHomeFeed(){
   const feed=$('homeFeed');if(!feed) return;
-  feed.innerHTML='<div class="feed-loading"><div class="spinner"></div>Loading recent posts…</div>';
+  feed.innerHTML='<div class="feed-loading"><div class="spinner"></div>Loading posts…</div>';
   S.feedLoaded=true;
   try{
-    // Load trending/recent messages
-    const[prs,rts]=await Promise.all([
-      searchProfiles('',6).catch(()=>[]),
-      searchRoots('',20).catch(()=>[])
-    ]);
+    let prs=[], rts=[];
+    if (S.homeTab === 'trending') {
+      const tcData = await fetchJ(`${API_BASE}/GetTrendingRootSearches?qty=3`,10000).catch(()=>[]);
+      const rows=Array.isArray(tcData)?tcData:[];
+      const trends = rows.map(r=>norm(r?.searchString||r?.keyword||'')).filter(Boolean).slice(0, 3);
+      if(trends.length) {
+        const trendProms = trends.map(t=>searchRoots(t, 10));
+        const allTrendRoots = await Promise.all(trendProms);
+        rts = allTrendRoots.flat().sort((a,b)=>new Date(b?.Root?.BlockDate||b?.root?.BlockDate||0) - new Date(a?.Root?.BlockDate||a?.root?.BlockDate||0)).slice(0, 20);
+      } else {
+        const fallback = await searchRoots('', 20).catch(()=>[]);
+        rts = fallback;
+      }
+    } else {
+      // Recent tab
+      const res = await Promise.all([
+        searchProfiles('',6).catch(()=>[]),
+        searchRoots('',20).catch(()=>[])
+      ]);
+      prs = res[0];
+      rts = res[1];
+    }
+
     // build profile cache for senders
     const profileCache={};
     if(S.myProfile) profileCache[S.myProfile.addr]=S.myProfile;
     clr(feed);
     if(!rts.length&&!prs.length){feed.innerHTML='<div class="feed-empty">No posts found. Be the first to post!</div>';return;}
     // render roots — unwrap Root wrapper if present (format varies by endpoint)
-    const roots=blockFilterRows(rts.map(raw=>normalizeRoot(raw?.Root||raw?.root||raw)).filter(Boolean));
-    if(!roots.length){feed.innerHTML='<div class="feed-empty">No recent posts found.</div>';return;}
+    let roots=blockFilterRows(rts.map(raw=>normalizeRoot(raw?.Root||raw?.root||raw)).filter(Boolean));
+
+    // Process pending messages
+    let pendingRoots = [];
+    if (S.pendingTxs && S.pendingTxs.size > 0) {
+      const rootTxIds = new Set(roots.map(r => r.txId));
+      for (const [txid, pTx] of S.pendingTxs.entries()) {
+        if (pTx.type === 'post' && pTx.root && !rootTxIds.has(txid)) {
+          pendingRoots.push(pTx.root);
+        } else if (pTx.type === 'post' && rootTxIds.has(txid)) {
+          S.pendingTxs.delete(txid);
+        }
+      }
+    }
+
+    if(!roots.length && !pendingRoots.length){feed.innerHTML='<div class="feed-empty">No recent posts found.</div>';return;}
     // Batch-fetch profiles for unique senders so tweet cards show names & avatars
-    const senderAddrs=[...new Set(roots.map(r=>r.fromAddr).filter(Boolean))].slice(0,15);
+    const allAddrs = [...pendingRoots.map(r=>r.fromAddr), ...roots.map(r=>r.fromAddr)];
+    const senderAddrs=[...new Set(allAddrs.filter(Boolean))].slice(0,15);
     await Promise.allSettled(senderAddrs.map(addr=>
       fetchProfileByAddr(addr).then(p=>{if(p&&p.addr) profileCache[p.addr]=p;}).catch(()=>{})
     ));
+
+    // render pending roots first
+    pendingRoots.forEach(root=>{
+      const el=buildTweetEl(root,{profileCache});
+      feed.appendChild(el);
+    });
+
     roots.forEach(root=>{
       const el=buildTweetEl(root,{profileCache});
       feed.appendChild(el);
@@ -2067,25 +2276,47 @@ async function renderSidebarList(){
   }
 }
 
+let communityCacheLock = false;
+
 async function refreshCommunityCache({force=false}={}){
+  if (communityCacheLock) return S.communityCache?.posts || [];
   const addrs=[...S.followed].filter(a=>!isBlockedAddr(a));
   const followedKey=[...addrs].sort().join('|');
   const freshMs=5*60*1000;
   if(!force&&Date.now()-Number(S.communityCache?.ts||0)<freshMs&&norm(S.communityCache?.followedKey)===followedKey) return S.communityCache.posts||[];
+
   if(!addrs.length){S.communityCache={ts:Date.now(),posts:[],followedKey:''};saveSocialState();return[];}
-  const gathered=[];const batch=3;
-  for(let i=0;i<addrs.length;i+=batch){
-    const chunk=addrs.slice(i,i+batch);
-    const parts=await Promise.all(chunk.map(addr=>fetchMessages(addr,20).catch(()=>[])));
-    gathered.push(...parts.flat());
-    if(i+batch<addrs.length) await new Promise(r=>setTimeout(r,180));
+
+  communityCacheLock = true;
+  try {
+    // If the user is following a very large number of addresses, we need to limit the size to avoid completely overwhelming the API
+    const maxAddresses = 1000;
+    const targetAddrs = addrs.slice(0, maxAddresses);
+
+    const gathered=[];
+    const batch=10; // Batch 10 requests at a time
+    for(let i=0;i<targetAddrs.length;i+=batch){
+      const chunk=targetAddrs.slice(i,i+batch);
+      // Limit to fetching the 10 most recent messages from each address for the community feed to prevent excessive processing
+      const parts=await Promise.all(chunk.map(addr=>fetchMessages(addr, 10).catch(()=>[])));
+      gathered.push(...parts.flat());
+      // Introduce a rate limiting delay between batches (e.g. 500ms)
+      if(i+batch<targetAddrs.length) await new Promise(r=>setTimeout(r,500));
+    }
+    const byTx=new Map();
+    blockFilterRows(gathered.map(asRoot).filter(Boolean)).forEach(r=>{if(r?.txId) byTx.set(r.txId,r);});
+
+    // Sort and only cache the 200 most recent items as requested by user ("top 200 messages from every person you follow")
+    const posts=[...byTx.values()]
+      .sort((a,b)=>new Date(b.blockDate||0)-new Date(a.blockDate||0))
+      .slice(0, 200);
+
+    S.communityCache={ts:Date.now(),posts,followedKey};
+    saveSocialState();
+    return posts;
+  } finally {
+    communityCacheLock = false;
   }
-  const byTx=new Map();
-  blockFilterRows(gathered.map(asRoot).filter(Boolean)).forEach(r=>{if(r?.txId) byTx.set(r.txId,r);});
-  const posts=[...byTx.values()].sort((a,b)=>new Date(b.blockDate||0)-new Date(a.blockDate||0));
-  S.communityCache={ts:Date.now(),posts,followedKey};
-  saveSocialState();
-  return posts;
 }
 async function loadCommunityFeed(){
   const feed=$('communityFeed');if(!feed) return;
@@ -2258,33 +2489,7 @@ window.openProfileTarget=function(urnOrAddr,mode='modal'){
   return openUserProfile(urnOrAddr);
 };
 window.openUserProfile=async function(urnOrAddr){
-  const nm=$('profModalName'),pc=$('profModalPostCount'),body=$('profModalBody');
-  if(!nm||!pc||!body) return;
-  nm.textContent='Loading…';pc.textContent='';clr(body);
-  openModal('modalProfile');
-  try{
-    let profile;
-    if(isAddr(urnOrAddr)) profile=await fetchProfileByAddr(urnOrAddr);
-    else profile=await fetchProfileByURN(urnOrAddr);
-    if(!profile?.addr) throw new Error('Profile not found');
-    if(isBlockedAddr(profile.addr)){
-      nm.textContent=profile.displayName||shortAddr(profile.addr);
-      pc.textContent='Blocked';
-      body.innerHTML=`<div class="feed-empty">This address is blocked.<div style="margin-top:12px;"><button class="btn btn-out btn-sm" onclick="toggleBlockAddr('${esc(profile.addr)}')">Unblock</button></div></div>`;
-      return;
-    }
-    const official=await isOfficial(profile);
-    const posts=blockFilterRows(await fetchMessages(profile.addr,25));
-    const seed={};
-    if(profile?.addr){
-      seed[profile.addr]=profile;
-      seed[profile.addr.toLowerCase()]=profile;
-    }
-    const postCache=await buildSenderProfileCache(posts,seed);
-    nm.textContent=profile.displayName||shortAddr(profile.addr);
-    pc.textContent=plural(posts.length,'post');
-    body.replaceChildren(buildProfilePageEl(profile,official,posts,profile.addr===S.addr,postCache));
-  }catch(e){body.innerHTML=`<div class="feed-err">${esc(e.message)}</div>`;}
+  return openProfileInMainThread(urnOrAddr);
 };
 async function openPostDetail(txid){
   const body=$('postDetailBody');if(!body) return;
@@ -2344,7 +2549,16 @@ window.closeModal=closeModal;
 document.querySelectorAll('.nav-item').forEach(btn=>{
   btn.addEventListener('click',()=>switchView(btn.dataset.view));
 });
-$('btnBrand')?.addEventListener('click',()=>switchView('home'));
+$('btnBrand')?.addEventListener('click',(e)=>{
+  if(e.target.closest('span[title]')) {
+    // If they clicked the uncensored badge/download link
+    const blob=new Blob([document.documentElement.outerHTML],{type:'text/html'});
+    const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='supspace.html';
+    a.click();
+    return;
+  }
+  switchView('home');
+});
 $('btnNewPost')?.addEventListener('click',()=>{
   if(!S.addr){openModal('modalWallet');return;}
   openModal('modalCompose');
