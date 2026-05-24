@@ -142,6 +142,13 @@
     .tw-act{display:flex;align-items:center;gap:5px;padding:6px 10px;border:none;background:none;color:var(--muted);font-size:.82rem;border-radius:9999px;cursor:pointer;transition:color .15s,background .15s}
     .tw-act:hover{background:var(--accent-bg);color:var(--accent)}
     .tw-act.like:hover{background:var(--danger-bg);color:var(--danger)}
+    .tw-act.active-like{background:var(--danger-bg);color:var(--danger)}
+    .tw-act.active-retweet{background:var(--accent-bg);color:var(--accent)}
+    .tw-act .count{font-size:.78rem;min-width:14px;text-align:right}
+    .tweet-inline-thread{margin-top:8px;padding-top:8px;border-top:1px solid var(--border)}
+    .tweet-inline-thread .tweet{padding-left:0;padding-right:0}
+    .tweet-inline-thread .tweet:last-child{border-bottom:none}
+    .tweet-inline-thread .tiny-link-btn{padding:6px 0}
 
     /* ── PROFILE PAGE ── */
     .profile-banner{height:192px;background:linear-gradient(135deg,#1a3a6e,#1d9bf0);position:relative}
@@ -611,6 +618,7 @@ const TAG_RE = /#([a-zA-Z0-9_-]{2,32})/g;
 const MENTION_RE = /@([A-Za-z0-9/]{1,64})/g;
 const FALLBACK_AVI = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect width="96" height="96" rx="48" fill="#1d9bf0"/><circle cx="48" cy="36" r="20" fill="rgba(255,255,255,.9)"/><path d="M16 88c7-20 18-28 32-28s25 8 32 28" fill="rgba(255,255,255,.9)"/></svg>');
 const PAGE_SIZE = 50;
+const THREAD_PREVIEW_BATCH = 5;
 
 /* ═══════════════════════════════════════════════════
    APP STATE
@@ -1602,7 +1610,7 @@ function renderAttachEl(token){
   return wrap;
 }
 
-function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='modal'}={}){
+function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='modal', withEngagement=true}={}){
   const art=document.createElement('article');
   art.className='tweet';
   const fromAddr=norm(root.fromAddr);
@@ -1615,7 +1623,6 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
   const{clean,attachments,links}=parseMsg(root.message);
   const poll=extractInlinePoll(clean);
   const cleanText=poll?poll.textWithoutPoll:clean;
-  const metrics=(root._metrics&&typeof root._metrics==='object')?root._metrics:null;
   const mediaHtml=[];
   [...attachments,...root.files.map(f=>`${root.txId}/${f}`),...links].forEach(tok=>{
     const info=attachmentPreviewCandidates(tok),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls);
@@ -1647,11 +1654,20 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
       ${mediaHtml.join('')}
       <div class="tweet-metrics" style="display:none;"></div>
       <div class="tweet-actions">
-        <button class="tw-act reply" title="Reply" onclick="openReply('${esc(root.txId)}')">
+        <button class="tw-act reply" title="Reply">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span class="count" data-count="comments">0</span>
         </button>
-        <button class="tw-act" title="View thread" onclick="openPostDetail('${esc(root.txId)}')">
+        <button class="tw-act retweet" title="Retweet">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+          <span class="count" data-count="retweets">0</span>
+        </button>
+        <button class="tw-act like" title="Like">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
+          <span class="count" data-count="likes">0</span>
+        </button>
+        <button class="tw-act thread" title="Toggle thread">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1.5" fill="currentColor"/><circle cx="4" cy="12" r="1.5" fill="currentColor"/><circle cx="4" cy="18" r="1.5" fill="currentColor"/></svg>
           Thread
         </button>
         <button class="tw-act" title="Copy txid" onclick="copyTxid('${esc(root.txId)}')">
@@ -1666,31 +1682,213 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
         </button>
       </div>
+      <div class="tweet-inline-thread hidden">
+        <div class="tweet-inline-thread-list"></div>
+        <button class="tiny-link-btn hidden" type="button">More</button>
+      </div>
     </div>`;
-  if(root.txId&&!root.isPending) loadTweetMetrics(art,root.txId).catch(()=>{});
+
+  const replyBtn=art.querySelector('.tw-act.reply');
+  const retweetBtn=art.querySelector('.tw-act.retweet');
+  const likeBtn=art.querySelector('.tw-act.like');
+  const threadBtn=art.querySelector('.tw-act.thread');
+  const threadMoreBtn=art.querySelector('.tweet-inline-thread .tiny-link-btn');
+  replyBtn?.addEventListener('click',e=>{e.stopPropagation();(onReply||window.openReply)?.(root.txId);});
+  retweetBtn?.addEventListener('click',e=>{e.stopPropagation();sendThreadAction(root.txId,'retweet',art).catch(()=>{});});
+  likeBtn?.addEventListener('click',e=>{e.stopPropagation();sendThreadAction(root.txId,'like',art).catch(()=>{});});
+  threadBtn?.addEventListener('click',e=>{
+    e.stopPropagation();
+    toggleInlineThread(art,root.txId,{profileCache,onThread,profileNav}).catch(()=>{});
+  });
+  threadMoreBtn?.addEventListener('click',e=>{
+    e.stopPropagation();
+    loadMoreInlineThread(art,root.txId,{profileCache,profileNav}).catch(()=>{});
+  });
+
+  if(root.txId&&!root.isPending&&withEngagement) loadTweetEngagement(art,root.txId,{profileCache,profileNav}).catch(()=>{});
+  else{
+    art.querySelectorAll('.tw-act .count').forEach(el=>el.remove());
+    const wrap=art.querySelector('.tweet-inline-thread');
+    if(wrap) wrap.remove();
+  }
   return art;
 }
 
-async function loadTweetMetrics(art,txid){
-  if(!art||!txid) return;
+function formatMetricCount(n,done){
+  const v=Number(n||0);
+  if(done||v===0) return String(v);
+  return `${v}+`;
+}
+function visibleInlineEntries(state){
+  return (state?.entries||[]).filter(r=>r?._actions?.comment||r?._actions?.retweet);
+}
+function updateTweetCardUi(art){
+  const state=art?._threadState;
+  if(!art||!state) return;
+  const done=Boolean(state.done);
+  const totals=state.metrics||{comments:0,retweets:0,likes:0};
   const metricsEl=art.querySelector('.tweet-metrics');
-  if(!metricsEl) return;
-  try{
-    const addr=await kwAddr(txid);
-    const replies=await fetchMessages(addr,PAGE_SIZE);
-    const totals={comments:0,retweets:0,likes:0};
-    for(const r of blockFilterRows(replies)){
-      const a=classifyThreadActions(r.message);
-      if(a.like) totals.likes+=1;
-      if(a.retweet) totals.retweets+=1;
-      if(a.comment) totals.comments+=1;
-    }
-    const total=totals.comments+totals.retweets+totals.likes;
-    if(total>0){
-      metricsEl.innerHTML=`<span>💬 ${totals.comments}</span><span>🔁 ${totals.retweets}</span><span>❤️ ${totals.likes}</span>`;
+  if(metricsEl){
+    const any=totals.comments||totals.retweets||totals.likes;
+    if(any){
+      metricsEl.innerHTML=`<span>💬 ${formatMetricCount(totals.comments,done)}</span><span>🔁 ${formatMetricCount(totals.retweets,done)}</span><span>❤️ ${formatMetricCount(totals.likes,done)}</span>`;
       metricsEl.style.display='flex';
+    }else metricsEl.style.display='none';
+  }
+  const commentsCountEl=art.querySelector('[data-count="comments"]');
+  const retweetsCountEl=art.querySelector('[data-count="retweets"]');
+  const likesCountEl=art.querySelector('[data-count="likes"]');
+  if(commentsCountEl) commentsCountEl.textContent=formatMetricCount(totals.comments,done);
+  if(retweetsCountEl) retweetsCountEl.textContent=formatMetricCount(totals.retweets,done);
+  if(likesCountEl) likesCountEl.textContent=formatMetricCount(totals.likes,done);
+  art.querySelector('.tw-act.like')?.classList.toggle('active-like',Boolean(state.userLiked));
+  art.querySelector('.tw-act.retweet')?.classList.toggle('active-retweet',Boolean(state.userRetweeted));
+}
+function renderInlineThread(art,{profileCache={},profileNav='main'}={}){
+  const state=art?._threadState;
+  const wrap=art?.querySelector('.tweet-inline-thread');
+  const list=wrap?.querySelector('.tweet-inline-thread-list');
+  const moreBtn=wrap?.querySelector('.tiny-link-btn');
+  if(!state||!wrap||!list||!moreBtn) return;
+  const rows=visibleInlineEntries(state);
+  if(!rows.length&&state.done){wrap.classList.add('hidden');return;}
+  if(state.open) wrap.classList.remove('hidden');
+  clr(list);
+  const shown=Math.min(state.rendered,rows.length);
+  rows.slice(0,shown).forEach(r=>list.appendChild(buildTweetEl(r,{profileCache,profileNav:'main',withEngagement:false})));
+  const hasMore=rows.length>shown||!state.done;
+  moreBtn.classList.toggle('hidden',!hasMore);
+  if(hasMore) moreBtn.textContent=state.loading?'Loading…':'More';
+}
+async function ensureThreadState(art,txid,{profileCache={}}={}){
+  if(!art||!txid) return null;
+  if(art._threadState) return art._threadState;
+  const state={
+    txid:norm(txid).toLowerCase(),
+    addr:'',
+    entries:[],
+    metrics:{comments:0,retweets:0,likes:0},
+    userLiked:false,
+    userRetweeted:false,
+    seen:new Set([norm(txid).toLowerCase()]),
+    skip:0,
+    rendered:0,
+    loading:false,
+    done:false,
+    open:false,
+    profileCache:{...(profileCache||{})}
+  };
+  art._threadState=state;
+  return state;
+}
+async function fillThreadData(art,minVisible,{profileCache={}}={}){
+  const state=art?._threadState;
+  if(!state||state.loading) return;
+  if(!state.addr) state.addr=await kwAddr(state.txid);
+  state.loading=true;
+  try{
+    while(visibleInlineEntries(state).length<minVisible&&!state.done){
+      const rows=await fetchMessages(state.addr,PAGE_SIZE,state.skip);
+      state.skip+=PAGE_SIZE;
+      if(rows.length<PAGE_SIZE) state.done=true;
+      const fresh=[];
+      for(const r of rows){
+        const t=norm(r?.txId).toLowerCase();
+        if(!t||t===state.txid||state.seen.has(t)) continue;
+        state.seen.add(t);
+        const actions=classifyThreadActions(r.message);
+        const row={...r,_actions:actions};
+        state.entries.push(row);
+        fresh.push(row);
+        if(actions.comment) state.metrics.comments+=1;
+        if(actions.retweet) state.metrics.retweets+=1;
+        if(actions.like) state.metrics.likes+=1;
+        if(S.addr&&norm(r.fromAddr).toLowerCase()===norm(S.addr).toLowerCase()){
+          if(actions.like) state.userLiked=true;
+          if(actions.retweet) state.userRetweeted=true;
+        }
+      }
+      if(fresh.length){
+        const pc=await buildSenderProfileCache(fresh,state.profileCache);
+        Object.assign(state.profileCache,pc||{});
+      }
+      if(!rows.length) state.done=true;
     }
-  }catch{/*ignore metrics failures*/}
+  }finally{
+    state.loading=false;
+  }
+}
+async function loadTweetEngagement(art,txid,{profileCache={},profileNav='main'}={}){
+  const state=await ensureThreadState(art,txid,{profileCache});
+  if(!state) return;
+  await fillThreadData(art,THREAD_PREVIEW_BATCH,{profileCache});
+  state.rendered=Math.max(state.rendered,Math.min(THREAD_PREVIEW_BATCH,visibleInlineEntries(state).length));
+  state.open=visibleInlineEntries(state).length>0;
+  updateTweetCardUi(art);
+  renderInlineThread(art,{profileCache:state.profileCache,profileNav});
+}
+async function loadMoreInlineThread(art,txid,{profileCache={},profileNav='main'}={}){
+  const state=await ensureThreadState(art,txid,{profileCache});
+  if(!state) return;
+  state.open=true;
+  state.rendered+=THREAD_PREVIEW_BATCH;
+  await fillThreadData(art,state.rendered,{profileCache});
+  updateTweetCardUi(art);
+  renderInlineThread(art,{profileCache:state.profileCache,profileNav});
+}
+async function toggleInlineThread(art,txid,{profileCache={},onThread,profileNav='main'}={}){
+  const wrap=art?.querySelector('.tweet-inline-thread');
+  if(!wrap){
+    if(typeof onThread==='function') onThread(txid);
+    else openPostDetail(txid);
+    return;
+  }
+  const state=await ensureThreadState(art,txid,{profileCache});
+  if(!state) return;
+  state.open=!state.open;
+  if(state.open){
+    state.rendered=Math.max(state.rendered,THREAD_PREVIEW_BATCH);
+    await fillThreadData(art,state.rendered,{profileCache});
+    if(!visibleInlineEntries(state).length&&typeof onThread==='function'){onThread(txid);return;}
+  }
+  updateTweetCardUi(art);
+  renderInlineThread(art,{profileCache:state.profileCache,profileNav});
+}
+async function sendThreadAction(txid,kind,art){
+  if(!S.priv||!S.addr){openModal('modalWallet');return;}
+  const t=norm(txid).toLowerCase();
+  if(!TXID_RE.test(t)) return;
+  const btn=art?.querySelector(kind==='like'?'.tw-act.like':'.tw-act.retweet');
+  if(btn?.dataset.busy==='1') return;
+  if(btn) btn.dataset.busy='1';
+  try{
+    const extras=[await kwAddr(t)];
+    const text=kind==='retweet'?`<<${t}>>`:'';
+    const outputs=await buildMsgOutputs({text,attachments:[],extras,fromAddr:S.addr});
+    const actionTx=await broadcastTx(outputs);
+    const optimisticRoot={message:text,fromAddr:S.addr,toAddrs:[],blockDate:'',txId:actionTx,files:[],raw:{},isPending:true};
+    S.pendingTxs.set(actionTx,{type:'post',status:'broadcasting',root:optimisticRoot});
+    const state=await ensureThreadState(art,t,{profileCache:{}});
+    if(state){
+      const acts=kind==='retweet'
+        ? {comment:false,retweet:true,like:true}
+        : {comment:false,retweet:false,like:true};
+      if(acts.comment) state.metrics.comments+=1;
+      if(acts.retweet){state.metrics.retweets+=1;state.userRetweeted=true;}
+      if(acts.like){state.metrics.likes+=1;state.userLiked=true;}
+      if(acts.comment||acts.retweet){
+        const optimisticRow={message:text,fromAddr:S.addr,toAddrs:[],blockDate:'',txId:actionTx,files:[],raw:{},isPending:true,_actions:acts};
+        state.entries.unshift(optimisticRow);
+        state.seen.add(norm(actionTx).toLowerCase());
+      }
+      updateTweetCardUi(art);
+      renderInlineThread(art,{profileCache:state.profileCache,profileNav:'main'});
+    }
+  }catch(e){
+    alert(e?.message||`${kind} failed`);
+  }finally{
+    if(btn) delete btn.dataset.busy;
+  }
 }
 
 function buildProfilePageEl(profile, official, posts=[], ownProfile=false, extraProfileCache={}){
@@ -2851,7 +3049,7 @@ async function openPostDetail(txid){
     body.appendChild(buildSearchHead(rootTx,'Thread'));
     const profileCache=await buildSenderProfileCache([root],{});
     if(token!==S.runTokens.thread) return;
-    body.appendChild(buildTweetEl(root,{profileCache,profileNav:'main'}));
+    body.appendChild(buildTweetEl(root,{profileCache,profileNav:'main',withEngagement:false}));
     const hdr=document.createElement('div');
     hdr.style.cssText='padding:12px 16px;font-weight:700;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;gap:12px;';
     hdr.innerHTML='<span>0 replies</span><span style="color:var(--muted);font-size:.82rem;">💬 0 · 🔁 0 · ❤️ 0</span>';
@@ -2884,8 +3082,10 @@ async function openPostDetail(txid){
             if(a.comment) metrics.comments+=1;
             if(a.retweet) metrics.retweets+=1;
             if(a.like) metrics.likes+=1;
-            replyCount+=1;
-            threadWrap.appendChild(buildTweetEl(r,{profileCache,profileNav:'main'}));
+            if(a.comment||a.retweet){
+              replyCount+=1;
+              threadWrap.appendChild(buildTweetEl(r,{profileCache,profileNav:'main',withEngagement:false}));
+            }
           });
           redrawHdr();
         }else if(replyCount===0){
