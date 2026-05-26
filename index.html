@@ -639,7 +639,7 @@ const AMOUNT_PER = DUST / 1e8;
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const DELIMITERS = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
 const CID_RE = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[1-9A-HJ-NP-Za-km-z]{20,})$/i;
-const IPFS_GWS = ['https://ipfs.io/ipfs/','https://cloudflare-ipfs.com/ipfs/','https://dweb.link/ipfs/','https://gateway.pinata.cloud/ipfs/'];
+const IPFS_GWS = ['https://ipfs.io/ipfs/','https://dweb.link/ipfs/','https://w3s.link/ipfs/'];
 const IPFS_PATH_RE = /^\/?ipfs\/([a-zA-Z0-9]+)(?:\/(.*))?$/i;
 const UNSAFE_RE = /[^a-zA-Z0-9._-]/g;
 const IMG_RE = /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i;
@@ -652,7 +652,7 @@ const MENTION_RE = /@([A-Za-z0-9/]{1,64})/g;
 const FALLBACK_AVI = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect width="96" height="96" rx="48" fill="#1d9bf0"/><circle cx="48" cy="36" r="20" fill="rgba(255,255,255,.9)"/><path d="M16 88c7-20 18-28 32-28s25 8 32 28" fill="rgba(255,255,255,.9)"/></svg>');
 const PAGE_SIZE = 50;
 const THREAD_PREVIEW_BATCH = 5;
-const GIF_PICK_BATCH = 24;
+const GIF_PICK_BATCH = 12;
 
 /* ═══════════════════════════════════════════════════
    APP STATE
@@ -2515,29 +2515,40 @@ function extractGifTokensFromRoot(root){
 function renderGifPicker(){
   const box=$('cmGifPicker');if(!box) return;
   const gp=S.gifPicker;
-  clr(box);
+  // Remove any existing status divs (empty/loading messages)
+  [...box.querySelectorAll('.cm-gif-empty')].forEach(el=>el.remove());
+  // If there are no items at all, show a single status row and stop
   if(!gp.items.length){
-    const empty=document.createElement('div');
-    empty.className='cm-gif-empty';
-    empty.textContent=gp.loading?`Loading #${gp.keyword} GIFs…`:gp.done?`No GIFs found for #${gp.keyword}.`:`Search GIFs`;
-    box.appendChild(empty);
+    clr(box);
+    const div=document.createElement('div');
+    div.className='cm-gif-empty';
+    div.textContent=gp.loading?`Loading #${gp.keyword} GIFs…`:gp.done?`No GIFs found for #${gp.keyword}.`:`Search GIFs`;
+    box.appendChild(div);
     return;
   }
-  gp.items.forEach(it=>{
+  // Append only items that aren't already in the DOM
+  const already=box.querySelectorAll('.cm-gif-item').length;
+  gp.items.slice(already).forEach((it,relIdx)=>{
     const btn=document.createElement('button');
     btn.type='button';
     btn.className='cm-gif-item';
     btn.title='Attach GIF';
-    const cands=it.cands&&it.cands.length?` data-cands="${esc(JSON.stringify(it.cands))}"`:' data-cands="[]"';
-    btn.innerHTML=`<img src="${esc(it.url)}" alt="GIF" loading="lazy"${cands} onerror="gif_img_err(this)">`;
+    const img=document.createElement('img');
+    img.alt='GIF';
+    img.dataset.cands=JSON.stringify(it.cands||[]);
+    img.onerror=function(){gif_img_err(this);};
+    btn.appendChild(img);
     btn.onclick=()=>useGifAttachment(it.token);
     box.appendChild(btn);
+    // Stagger src assignments to avoid flooding IPFS gateways (200ms per item)
+    setTimeout(()=>{if(img&&!img.src)img.src=it.url;},relIdx*200);
   });
+  // Show loading indicator at the end if still fetching
   if(gp.loading&&!gp.done){
-    const loading=document.createElement('div');
-    loading.className='cm-gif-empty';
-    loading.textContent='Loading more…';
-    box.appendChild(loading);
+    const div=document.createElement('div');
+    div.className='cm-gif-empty';
+    div.textContent='Loading more…';
+    box.appendChild(div);
   }
 }
 function bindGifPickerScroll(){
@@ -2551,7 +2562,6 @@ async function loadMoreGifSelector(){
   const gp=S.gifPicker;
   if(gp.loading||gp.done) return;
   gp.loading=true;
-  renderGifPicker();
   const run=gp.token;
   try{
     if(!gp.addr) gp.addr=await kwAddr(gp.keyword||'gif');
@@ -2606,9 +2616,18 @@ async function toggleGifSelector(){
 window.gif_img_err=function(el){
   try{
     const cands=JSON.parse(el.dataset.cands||'[]');
-    if(cands.length){el.dataset.cands=JSON.stringify(cands.slice(1));el.src=cands[0];}
-    else{el.removeAttribute('onerror');el.closest('.cm-gif-item')?.remove();}
-  }catch{el.removeAttribute('onerror');el.closest('.cm-gif-item')?.remove();}
+    if(cands.length){
+      el.dataset.cands=JSON.stringify(cands.slice(1));
+      el.src=cands[0];
+    }else{
+      // All gateways exhausted — hide img but keep the tile slot visible
+      el.removeAttribute('onerror');
+      el.style.display='none';
+    }
+  }catch{
+    el.removeAttribute('onerror');
+    el.style.display='none';
+  }
 };
 async function useGifAttachment(token){
   const inp=$('cmAttachInput');
