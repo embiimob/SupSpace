@@ -1744,7 +1744,7 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/></svg>
           <span class="count" data-count="likes">0</span>
         </button>
-        <button class="tw-act thread" title="Toggle thread">
+        <button class="tw-act thread" title="Toggle thread" style="display:none;">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="4" cy="6" r="1.5" fill="currentColor"/><circle cx="4" cy="12" r="1.5" fill="currentColor"/><circle cx="4" cy="18" r="1.5" fill="currentColor"/></svg>
           Thread
         </button>
@@ -1816,6 +1816,12 @@ function updateTweetCardUi(art){
   if(likesCountEl) likesCountEl.textContent=formatMetricCount(totals.likes,done);
   art.querySelector('.tw-act.like')?.classList.toggle('active-like',Boolean(state.userLiked));
   art.querySelector('.tw-act.retweet')?.classList.toggle('active-retweet',Boolean(state.userRetweeted));
+
+  const threadBtn=art.querySelector('.tw-act.thread');
+  if(threadBtn) {
+    const hasThread = totals.comments > 0 || totals.retweets > 0;
+    threadBtn.style.display = hasThread ? '' : 'none';
+  }
 }
 function renderInlineThread(art,{profileCache={},profileNav='main'}={}){
   const state=art?._threadState;
@@ -1990,7 +1996,8 @@ function buildProfilePageEl(profile, official, posts=[], ownProfile=false, extra
   const followed=S.followed.has(profile.addr);
   const linksHtml=Object.entries(profile.urls||{}).map(([k,v])=>{
     if(k.toLowerCase()==='pin') return '';
-    if(v.startsWith('@')) return `<a href="javascript:void(0);" onclick="openUserProfile('${esc(v.slice(1))}')" style="color:var(--accent);">🔗 ${esc(k)}</a>`;
+    // To prevent XSS via attributes with escaped quotes being decoded, we use data-urn here and delegate.
+    if(v.startsWith('@')) return `<a href="javascript:void(0);" class="profile-at-link" data-urn="${esc(v.slice(1))}" style="color:var(--accent);">🔗 ${esc(k)}</a>`;
     return `<a href="${esc(v)}" target="_blank" rel="noopener" style="color:var(--accent);">🔗 ${esc(k)}</a>`;
   }).filter(Boolean).join(' ');
   const locHtml=Object.values(profile.loc||{}).join(', ');
@@ -2031,6 +2038,14 @@ function buildProfilePageEl(profile, official, posts=[], ownProfile=false, extra
       </div>
       <div class="wallet-addr-val mono" style="font-size:.78rem;color:var(--muted);">${esc(profile.addr)}</div>
     </div>`;
+
+  wrap.querySelectorAll('.profile-at-link').forEach(el => {
+    el.addEventListener('click', (e) => {
+      const urn = e.currentTarget.dataset.urn;
+      if (urn) openUserProfile(urn);
+    });
+  });
+
   const tabBar=document.createElement('div');
   tabBar.className='tab-bar';
   tabBar.innerHTML=`<button class="tab-btn active">Posts</button>`;
@@ -2063,8 +2078,16 @@ async function renderProfileWithPagination(container, profile, official, ownProf
 
   // Handle pinned tweets
   const pinTxids = Object.entries(profile.urls||{})
-    .filter(([k,v])=>k.trim().toLowerCase()==='pin'&&TXID_RE.test(v.trim()))
-    .map(([k,v])=>v.trim().toLowerCase());
+    .filter(([k,v])=>{
+        const val = (v||'').trim();
+        const txMatch = val.match(/^(?:0x)?([0-9a-fA-F]{64})$/);
+        return k.trim().toLowerCase()==='pin' && txMatch;
+    })
+    .map(([k,v])=>{
+        const val = (v||'').trim();
+        const txMatch = val.match(/^(?:0x)?([0-9a-fA-F]{64})$/);
+        return txMatch[1];
+    });
   for (let i=pinTxids.length-1; i>=0; i--) {
     const pinTxid = pinTxids[i];
     try {
