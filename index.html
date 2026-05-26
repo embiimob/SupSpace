@@ -2541,7 +2541,7 @@ function renderGifPicker(){
     btn.onclick=()=>useGifAttachment(it.token);
     box.appendChild(btn);
     // Stagger src assignments to avoid flooding IPFS gateways (200ms per item)
-    setTimeout(()=>{if(img&&!img.src)img.src=it.url;},relIdx*200);
+    setTimeout(()=>{if(img)img.src=it.url;},relIdx*200);
   });
   // Show loading indicator at the end if still fetching
   if(gp.loading&&!gp.done){
