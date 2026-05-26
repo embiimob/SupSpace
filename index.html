@@ -1449,10 +1449,10 @@ async function isOfficial(profile){
   try{
     const byAddr=await fetchProfileByAddr(profile.addr)||profile;
     const byUrn=await fetchProfileByURN(profile.urn);
-    const addrCreator=norm(byAddr?.creators?.[0]||byAddr?.addr||'');
+    const addrCreator=norm(byAddr?.creators?.[0]||profile?.creators?.[0]||'');
     const urnCreator=norm(byUrn?.creators?.[0]||'');
-    if(addrCreator&&urnCreator) return addrCreator===urnCreator;
-    return Boolean(byUrn?.addr&&byAddr?.addr&&byUrn.addr===byAddr.addr);
+    if(!addrCreator||!urnCreator) return false;
+    return addrCreator===urnCreator;
   }catch{return true;}
 }
 async function fetchMessages(addr,qty=25,skip=0){
