@@ -2088,10 +2088,17 @@ async function renderProfileWithPagination(container, profile, official, ownProf
            el = buildTweetEl(fakeRtRoot, {profileCache: postCache});
         }
 
-        const pinIndicator = document.createElement('div');
-        pinIndicator.style.cssText = 'font-size:0.8rem;color:var(--muted);margin-bottom:4px;display:flex;align-items:center;gap:4px;padding-left:12px;padding-top:8px;';
-        pinIndicator.innerHTML = '📌 Pinned';
-        el.insertBefore(pinIndicator, el.firstChild);
+        const pinIndicator = document.createElement('span');
+        pinIndicator.style.cssText = 'filter: grayscale(100%); opacity: 0.6; margin-left: 6px; font-size: 0.85rem;';
+        pinIndicator.innerHTML = '📌';
+
+        const header = el.querySelector('.tweet-header');
+        if (header) {
+            header.appendChild(pinIndicator);
+        } else {
+            // Fallback for mock retweet if it lacks header structure in some edge case
+            el.insertBefore(pinIndicator, el.firstChild);
+        }
 
         const empty=feedWrap.querySelector('.feed-empty');
         if(empty) empty.remove();
