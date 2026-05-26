@@ -1993,7 +1993,7 @@ function buildProfilePageEl(profile, official, posts=[], ownProfile=false, extra
     </div>
     <div class="profile-info">
       <div class="profile-name">${esc(profile.displayName)} ${pendingBadge}</div>
-      ${profile.urn?`<div class="profile-handle">@${esc(shortHandle(profile.urn,30))} ${claimEmoji} <span class="${official?'badge-v':'badge-v badge-unoff'}">${official?'✓ Official':'! Not official'}</span> ${!official?`<button class="tiny-link-btn" onclick="runExploreSearch('@${esc(profile.urn)}')">See official</button>`:''}</div>`:
+      ${profile.urn?`<div class="profile-handle">@${esc(shortHandle(profile.urn,30))} ${claimEmoji} <span class="${official?'badge-v':'badge-v badge-unoff'}">${official?'✓ Official':'! Not official'}</span> ${!official?`<button class="tiny-link-btn" onclick="openProfileInMainThread('@${esc(profile.urn)}')">See official</button>`:''}</div>`:
         `<div class="profile-handle mono">${esc(profile.addr)}</div>`}
       ${profileQuery?`<div style="margin-top:6px;"><button class="tiny-link-btn" onclick="shareQueryLink('${esc(profileQuery)}','SupSpace profile')">🔗 Share profile</button></div>`:''}
       ${profile.bio?`<div class="profile-bio">${esc(profile.bio)}</div>`:''}
