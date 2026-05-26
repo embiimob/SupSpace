@@ -114,9 +114,10 @@
     .tweet-avi{width:40px;height:40px;border-radius:50%;object-fit:cover;background:#222;flex-shrink:0;align-self:flex-start}
     .tweet-body{flex:1;min-width:0}
     .tweet-header{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-bottom:2px;font-size:.93rem}
-    .tweet-name{font-weight:700;cursor:pointer}
+    .tweet-name{font-weight:700;cursor:pointer;max-width:200px;overflow-wrap:break-word;word-break:break-word}
     .tweet-name:hover{text-decoration:underline}
-    .tweet-handle,.tweet-time{color:var(--muted);font-size:.88rem}
+    .tweet-handle{color:var(--muted);font-size:.88rem;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .tweet-time{color:var(--muted);font-size:.88rem}
     .badge-v{display:inline-flex;align-items:center;gap:2px;padding:1px 5px;border-radius:999px;font-size:.7rem;font-weight:600;background:var(--good-bg);color:var(--good);border:1px solid rgba(0,186,124,.35)}
     .badge-unoff{background:var(--danger-bg);color:var(--danger);border:1px solid rgba(244,33,46,.35)}
     .tweet-text{font-size:.93rem;line-height:1.5;word-break:break-word;white-space:pre-wrap;margin-bottom:6px}
@@ -130,8 +131,17 @@
     .tweet-media audio{width:100%;padding:8px}
     .tweet-media-file{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;border:1px solid var(--border);font-size:.82rem;font-family:monospace;color:var(--muted);word-break:break-all;margin:6px 0}
     .tweet-actions{display:flex;gap:0;margin-top:6px;margin-left:-8px;align-items:center;flex-wrap:wrap}
-    .tweet-metrics{display:flex;gap:12px;margin:6px 0 0 0;color:var(--muted);font-size:.78rem}
+    .tweet-metrics{display:none!important}
     .tweet-metrics span{display:inline-flex;gap:4px;align-items:center}
+    .profile-bio{font-size:.93rem;margin:6px 0;white-space:pre-wrap}
+    .rt-quote{border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-top:8px;cursor:pointer;transition:background .15s}
+    .rt-quote:hover{background:rgba(255,255,255,.04)}
+    .rt-quote-hdr{display:flex;align-items:center;gap:6px;font-size:.82rem;margin-bottom:4px;flex-wrap:wrap}
+    .rt-quote-avi{width:18px;height:18px;border-radius:50%;object-fit:cover;flex-shrink:0}
+    .rt-quote-name{font-weight:700;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .rt-quote-handle{color:var(--muted);max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .rt-quote-time{color:var(--muted)}
+    .rt-quote-text{font-size:.88rem;color:var(--text);line-height:1.45;word-break:break-word;white-space:pre-wrap;overflow:hidden;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical}
     .poll-card{margin-top:8px;border:1px solid var(--border);border-radius:12px;padding:10px;background:rgba(255,255,255,.02)}
     .poll-title{font-size:.9rem;font-weight:700;margin-bottom:8px}
     .poll-opt{margin:6px 0}
@@ -658,6 +668,11 @@ const sanitize = msg => decHtml(norm(msg)).replace(/[<>]/g,' ');
 const utf8len = v => new TextEncoder().encode(String(v??'')).length;
 const isAddr = v => ADDR_RE.test(norm(v));
 const shortAddr = v => { const t=norm(v); return t.length>16?`${t.slice(0,8)}…${t.slice(-5)}`:t; };
+const shortHandle = (h, max=20) => {
+  if(!h) return '';
+  const c=String(h).replace(/[\r\n\t\u0000-\u001f]/g,' ').replace(/\s+/g,' ').trim();
+  return c.length<=max ? c : c.slice(0,max-2)+'..';
+};
 const fmtDate = v => { if(!v) return ''; const d=new Date(v); return isNaN(d)?String(v).slice(0,20):d.toLocaleString(); };
 const fmtRel = v => {
   if(!v) return '';
@@ -1617,12 +1632,16 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
   const cached=profileCache[fromAddr]||profileCache[fromAddr.toLowerCase()];
   const aviAttrs=cached?profileImgAttrs(cached.image):`src="${FALLBACK_AVI}"`;
   const displayName=cached?cached.displayName:shortAddr(fromAddr);
-  const handle=cached?cached.urn:'';
-  const profileTarget=handle||fromAddr;
+  const handle=shortHandle(cached?cached.urn:'');
+  const profileTarget=(cached?.urn)||fromAddr;
   const profileNavMode=profileNav==='main'?'main':'modal';
   const{clean,attachments,links}=parseMsg(root.message);
   const poll=extractInlinePoll(clean);
   const cleanText=poll?poll.textWithoutPoll:clean;
+  // detect embedded retweet references
+  const rawMsg=String(root.message||'').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
+  const retweetTxids=[...rawMsg.matchAll(/<<([0-9a-fA-F]{64})>>/g)].map(m=>m[1].toLowerCase());
+  const hasRetweetRef=retweetTxids.length>0;
   const mediaHtml=[];
   [...attachments,...root.files.map(f=>`${root.txId}/${f}`),...links].forEach(tok=>{
     const info=attachmentPreviewCandidates(tok),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls);
@@ -1652,6 +1671,7 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
       <div class="tweet-text">${annotateText(cleanText||'')}</div>
       ${poll?renderPollCardHtml(root.txId,poll):''}
       ${mediaHtml.join('')}
+      ${hasRetweetRef?'<div class="rt-quote-slot"></div>':''}
       <div class="tweet-metrics" style="display:none;"></div>
       <div class="tweet-actions">
         <button class="tw-act reply" title="Reply">
@@ -1705,6 +1725,9 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
     loadMoreInlineThread(art,root.txId,{profileCache,profileNav}).catch(()=>{});
   });
 
+  // load embedded retweet quote card(s) asynchronously
+  if(hasRetweetRef) appendRetweetQuote(art,retweetTxids,profileCache).catch(()=>{});
+
   if(root.txId&&!root.isPending&&withEngagement) loadTweetEngagement(art,root.txId,{profileCache,profileNav}).catch(()=>{});
   else{
     art.querySelectorAll('.tw-act .count').forEach(el=>el.remove());
@@ -1727,14 +1750,6 @@ function updateTweetCardUi(art){
   if(!art||!state) return;
   const done=Boolean(state.done);
   const totals=state.metrics||{comments:0,retweets:0,likes:0};
-  const metricsEl=art.querySelector('.tweet-metrics');
-  if(metricsEl){
-    const any=totals.comments||totals.retweets||totals.likes;
-    if(any){
-      metricsEl.innerHTML=`<span>💬 ${formatMetricCount(totals.comments,done)}</span><span>🔁 ${formatMetricCount(totals.retweets,done)}</span><span>❤️ ${formatMetricCount(totals.likes,done)}</span>`;
-      metricsEl.style.display='flex';
-    }else metricsEl.style.display='none';
-  }
   const commentsCountEl=art.querySelector('[data-count="comments"]');
   const retweetsCountEl=art.querySelector('[data-count="retweets"]');
   const likesCountEl=art.querySelector('[data-count="likes"]');
@@ -1888,6 +1903,37 @@ async function sendThreadAction(txid,kind,art){
     alert(e?.message||`${kind} failed`);
   }finally{
     if(btn) delete btn.dataset.busy;
+  }
+}
+
+async function appendRetweetQuote(art, txids, profileCache){
+  const slot=art.querySelector('.rt-quote-slot');
+  if(!slot) return;
+  for(const txid of txids){
+    try{
+      const quoted=await fetchSingleRoot(txid);
+      if(!quoted) continue;
+      const pc=await buildSenderProfileCache([quoted],profileCache||{});
+      const cached=(pc||{})[quoted.fromAddr]||(pc||{})[quoted.fromAddr?.toLowerCase()];
+      const displayName=cached?cached.displayName:shortAddr(quoted.fromAddr||'');
+      const handle=shortHandle(cached?.urn||'');
+      const aviAttrs=cached?profileImgAttrs(cached.image):`src="${FALLBACK_AVI}"`;
+      const{clean:qClean}=parseMsg(quoted.message);
+      const qPoll=extractInlinePoll(qClean);
+      const qText=qPoll?qPoll.textWithoutPoll:qClean;
+      const qel=document.createElement('div');
+      qel.className='rt-quote';
+      qel.onclick=e=>{e.stopPropagation();openPostDetail(txid);};
+      qel.innerHTML=`
+        <div class="rt-quote-hdr">
+          <img class="rt-quote-avi" ${aviAttrs} alt="${esc(displayName)}">
+          <span class="rt-quote-name">${esc(displayName)}</span>
+          ${handle?`<span class="rt-quote-handle">@${esc(handle)}</span>`:''}
+          ${quoted.blockDate?`<span class="rt-quote-time">· ${fmtRel(quoted.blockDate)}</span>`:''}
+        </div>
+        <div class="rt-quote-text">${annotateText(qText||'')}</div>`;
+      slot.appendChild(qel);
+    }catch{}
   }
 }
 
