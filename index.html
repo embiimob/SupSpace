@@ -1831,7 +1831,12 @@ function renderInlineThread(art,{profileCache={},profileNav='main'}={}){
   if(!state||!wrap||!list||!moreBtn) return;
   const rows=visibleInlineEntries(state);
   if(!rows.length&&state.done){wrap.classList.add('hidden');return;}
-  if(state.open) wrap.classList.remove('hidden');
+  if(state.open) {
+    wrap.classList.remove('hidden');
+  } else {
+    wrap.classList.add('hidden');
+    return;
+  }
   clr(list);
   const shown=Math.min(state.rendered,rows.length);
   rows.slice(0,shown).forEach(r=>list.appendChild(buildTweetEl(r,{profileCache,profileNav:'main',withEngagement:false})));
@@ -1902,7 +1907,7 @@ async function loadTweetEngagement(art,txid,{profileCache={},profileNav='main'}=
   if(!state) return;
   await fillThreadData(art,THREAD_PREVIEW_BATCH,{profileCache});
   state.rendered=Math.max(state.rendered,Math.min(THREAD_PREVIEW_BATCH,visibleInlineEntries(state).length));
-  state.open=visibleInlineEntries(state).length>0;
+  state.open=false;
   updateTweetCardUi(art);
   renderInlineThread(art,{profileCache:state.profileCache,profileNav});
 }
