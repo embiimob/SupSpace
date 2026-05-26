@@ -230,13 +230,14 @@
     .cm-attach-item audio{width:100%}
     .cm-attach-rm{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.75);border:none;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:.75rem}
     .cm-attach-text{font-size:.75rem;font-family:monospace;padding:8px 10px;color:var(--muted);word-break:break-all}
-    .cm-gif-tool{padding:8px 16px 0}
+    .cm-gif-tool{padding:8px 0 0}
     .cm-gif-search{display:flex;gap:8px;align-items:center}
     .cm-gif-search .f-input{padding:8px 12px}
     .cm-gif-picker{margin-top:8px;max-height:180px;overflow:auto;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding-bottom:2px;-webkit-overflow-scrolling:touch}
-    .cm-gif-item{border:1px solid var(--border);border-radius:10px;background:#0b0d12;overflow:hidden;padding:0;display:block;width:100%;min-height:72px}
+    .cm-gif-item{border:1px solid var(--border);border-radius:10px;background:#0b0d12;overflow:hidden;padding:0;display:block;width:100%;min-height:72px;cursor:pointer}
     .cm-gif-item img{width:100%;height:72px;object-fit:cover;display:block}
     .cm-gif-empty{grid-column:1/-1;color:var(--muted);font-size:.82rem;text-align:center;padding:10px 6px}
+    .btn-gif-active{background:var(--accent-bg)!important;border-color:var(--accent)!important;color:var(--accent)!important}
     @media(max-width:900px){
       .cm-gif-picker{max-height:220px;grid-template-columns:repeat(2,minmax(0,1fr))}
       .cm-gif-item img{height:88px}
@@ -481,11 +482,12 @@
       <div style="display:flex;gap:8px;align-items:center;">
         <input class="f-input" id="cmAttachInput" placeholder="IPFS:cid/file.ext · txid/file.ext · https://…" style="flex:1;" autocomplete="off">
         <button class="btn btn-out btn-sm" onclick="addComposedAttachment()">＋ Attach</button>
+        <button class="btn btn-out btn-sm" id="cmGifToggleBtn" onclick="toggleGifSelector()">GIF</button>
       </div>
-      <div class="cm-gif-tool">
+      <div class="cm-gif-tool hidden" id="cmGifTool" style="padding:8px 0 0;">
         <div class="cm-gif-search">
           <input class="f-input" id="cmGifKeyword" placeholder="#gif" style="flex:1;" autocomplete="off">
-          <button class="btn btn-out btn-sm" onclick="refreshGifSelector()">GIF</button>
+          <button class="btn btn-out btn-sm" onclick="refreshGifSelector(true)">Search</button>
         </div>
         <div class="cm-gif-picker" id="cmGifPicker"></div>
       </div>
@@ -2526,7 +2528,8 @@ function renderGifPicker(){
     btn.type='button';
     btn.className='cm-gif-item';
     btn.title='Attach GIF';
-    btn.innerHTML=`<img src="${esc(it.url)}" alt="GIF" loading="lazy">`;
+    const cands=it.cands&&it.cands.length?` data-cands="${esc(JSON.stringify(it.cands))}"`:' data-cands="[]"';
+    btn.innerHTML=`<img src="${esc(it.url)}" alt="GIF" loading="lazy"${cands} onerror="gif_img_err(this)">`;
     btn.onclick=()=>useGifAttachment(it.token);
     box.appendChild(btn);
   });
@@ -2559,12 +2562,13 @@ async function loadMoreGifSelector(){
     rows.forEach(root=>{
       extractGifTokensFromRoot(root).forEach(tok=>{
         const info=attachmentPreviewCandidates(tok);
-        const url=info.urls.find(u=>isGifToken(u))||info.urls[0]||'';
-        if(!url||!isGifToken(url)) return;
+        const gifUrls=info.urls.filter(u=>isGifToken(u));
+        const url=gifUrls[0]||'';
+        if(!url) return;
         const key=norm(tok).toLowerCase();
         if(gp.seen.has(key)) return;
         gp.seen.add(key);
-        gp.items.push({token:tok,url});
+        gp.items.push({token:tok,url,cands:gifUrls.slice(1)});
       });
     });
     if(rows.length<GIF_PICK_BATCH) gp.done=true;
@@ -2586,6 +2590,26 @@ async function refreshGifSelector(force=false){
   renderGifPicker();
   await loadMoreGifSelector();
 }
+async function toggleGifSelector(){
+  const tool=$('cmGifTool'),btn=$('cmGifToggleBtn');
+  if(!tool) return;
+  const willOpen=tool.classList.contains('hidden');
+  tool.classList.toggle('hidden',!willOpen);
+  if(btn) btn.classList.toggle('btn-gif-active',willOpen);
+  if(willOpen){
+    bindGifPickerScroll();
+    const kw=$('cmGifKeyword');
+    if(kw&&!norm(kw.value)) kw.value='#gif';
+    await refreshGifSelector();
+  }
+}
+window.gif_img_err=function(el){
+  try{
+    const cands=JSON.parse(el.dataset.cands||'[]');
+    if(cands.length){el.dataset.cands=JSON.stringify(cands.slice(1));el.src=cands[0];}
+    else{el.removeAttribute('onerror');el.closest('.cm-gif-item')?.remove();}
+  }catch{el.removeAttribute('onerror');el.closest('.cm-gif-item')?.remove();}
+};
 async function useGifAttachment(token){
   const inp=$('cmAttachInput');
   if(inp) inp.value=token;
@@ -3305,9 +3329,11 @@ function openModal(id){
   if(id==='modalWallet'){renderWalletUI($('walletModalBody'));}
   if(id==='modalCompose'){
     const kw=$('cmGifKeyword');
-    if(kw&&!norm(kw.value)) kw.value='#gif';
-    bindGifPickerScroll();
-    refreshGifSelector();
+    if(kw) kw.value='#gif';
+    const tool=$('cmGifTool');
+    if(tool) tool.classList.add('hidden');
+    const toggleBtn=$('cmGifToggleBtn');
+    if(toggleBtn) toggleBtn.classList.remove('btn-gif-active');
   }
   if(id==='modalProfileEdit'&&!S.addr){
     const st=$('peStatus');
@@ -3359,7 +3385,6 @@ $('exploreSearchInput')?.addEventListener('input',e=>{
 });
 $('exploreSearchInput')?.addEventListener('keydown',e=>{if(e.key==='Enter'){clearTimeout(exploreTimer);runExploreSearch(e.target.value);}});
 $('cmGifKeyword')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();refreshGifSelector(true);}});
-$('cmGifKeyword')?.addEventListener('blur',()=>refreshGifSelector(true));
 
 // Right sidebar search → switch to explore
 $('rSearchInput')?.addEventListener('keydown',e=>{
@@ -3429,6 +3454,7 @@ window.estimateProfileTx=estimateProfileTx;
 window.broadcastProfileTx=broadcastProfileTx;
 window.addComposedAttachment=addComposedAttachment;
 window.refreshGifSelector=refreshGifSelector;
+window.toggleGifSelector=toggleGifSelector;
 window.toggleExtraFields=toggleExtraFields;
 window.submitCompose=submitCompose;
 window.submitInlinePost=submitInlinePost;
