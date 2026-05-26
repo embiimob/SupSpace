@@ -1369,7 +1369,16 @@ async function getBalance(addr){
 function normalizeProfile(raw,fallbackAddr=''){
   if(!raw||typeof raw!=='object') return null;
   const p = raw.profile || raw;
-  const creators=Array.isArray(p.Creators)?p.Creators.filter(x=>typeof x==='string'):Object.keys(p.Creators||{}).filter(k=>k!=='0');
+  const rawCreators=p.Creators;
+  let creators=[];
+  if(Array.isArray(rawCreators)){
+    creators=rawCreators.map(x=>norm(x)).filter(Boolean);
+  }else if(rawCreators&&typeof rawCreators==='object'){
+    const creatorVals=Object.values(rawCreators).map(x=>norm(x)).filter(Boolean);
+    const creatorKeys=Object.keys(rawCreators).map(x=>norm(x)).filter(Boolean);
+    creators=[...creatorVals.filter(isAddr),...creatorKeys.filter(isAddr),...creatorVals.filter(x=>!isAddr(x))];
+  }
+  creators=[...new Set(creators)];
   const addr=fallbackAddr||norm(raw.address||p.Address||p._address||creators[0]||'');
   return{
     addr,creators,
@@ -1437,7 +1446,14 @@ async function fetchProfileByURN(urn){
 }
 async function isOfficial(profile){
   if(!profile?.urn||!profile?.addr) return true;
-  try{const off=await fetchProfileByURN(profile.urn);return Boolean(off?.addr&&off.addr===profile.addr);}catch{return true;}
+  try{
+    const byAddr=await fetchProfileByAddr(profile.addr)||profile;
+    const byUrn=await fetchProfileByURN(profile.urn);
+    const addrCreator=norm(byAddr?.creators?.[0]||byAddr?.addr||'');
+    const urnCreator=norm(byUrn?.creators?.[0]||'');
+    if(addrCreator&&urnCreator) return addrCreator===urnCreator;
+    return Boolean(byUrn?.addr&&byAddr?.addr&&byUrn.addr===byAddr.addr);
+  }catch{return true;}
 }
 async function fetchMessages(addr,qty=25,skip=0){
   const r=await fetchJ(`${API_BASE}/GetPublicMessagesByAddress/${encodeURIComponent(addr)}?mainnet=false&skip=${Math.max(0,Number(skip)||0)}&qty=${qty}`,30000);
@@ -1965,7 +1981,7 @@ function buildProfilePageEl(profile, official, posts=[], ownProfile=false, extra
     </div>
     <div class="profile-info">
       <div class="profile-name">${esc(profile.displayName)} ${pendingBadge}</div>
-      ${profile.urn?`<div class="profile-handle">@${esc(shortHandle(profile.urn,30))} <span class="${official?'badge-v':'badge-v badge-unoff'}">${official?'✓ Official':'! Not official'}</span></div>`:
+      ${profile.urn?`<div class="profile-handle">@${esc(shortHandle(profile.urn,30))} <span class="${official?'badge-v':'badge-v badge-unoff'}">${official?'✓ Official':'! Not official'}</span> ${!official?`<button class="tiny-link-btn" onclick="runExploreSearch('@${esc(profile.urn)}')">See official</button>`:''}</div>`:
         `<div class="profile-handle mono">${esc(profile.addr)}</div>`}
       ${profileQuery?`<div style="margin-top:6px;"><button class="tiny-link-btn" onclick="shareQueryLink('${esc(profileQuery)}','SupSpace profile')">🔗 Share profile</button></div>`:''}
       ${profile.bio?`<div class="profile-bio">${esc(profile.bio)}</div>`:''}
