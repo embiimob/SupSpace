@@ -134,8 +134,10 @@
     .tweet-metrics{display:none!important}
     .tweet-metrics span{display:inline-flex;gap:4px;align-items:center}
     .profile-bio{font-size:.93rem;margin:6px 0;white-space:pre-wrap}
-    .rt-quote{border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-top:8px;cursor:pointer;transition:background .15s}
+    .rt-quote{border:1px solid var(--border);border-radius:12px;padding:0;margin-top:8px;cursor:pointer;transition:background .15s;overflow:hidden}
     .rt-quote:hover{background:rgba(255,255,255,.04)}
+    .rt-quote .tweet{padding:10px 12px;border-bottom:none}
+    .rt-quote .tweet:hover{background:transparent}
     .rt-quote-hdr{display:flex;align-items:center;gap:6px;font-size:.82rem;margin-bottom:4px;flex-wrap:wrap}
     .rt-quote-avi{width:18px;height:18px;border-radius:50%;object-fit:cover;flex-shrink:0}
     .rt-quote-name{font-weight:700;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1544,12 +1546,13 @@ function classifyThreadActions(message=''){
   const dec=String(message||'').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
   const refs=[...dec.matchAll(/<<([^>]+)>>/g)].map(m=>norm(m[1]));
   const text=dec.replace(/<<[^>]+>>/g,'').trim();
-  const hasTxidRef=refs.some(r=>TXID_RE.test(r));
+  const plainTxidOnly=TXID_RE.test(norm(text));
+  const hasTxidRef=refs.some(r=>TXID_RE.test(r))||plainTxidOnly;
   const hasAttachment=refs.some(r=>!TXID_RE.test(r)&&!/^[-+]?\d+$/.test(r)&&(r.startsWith('IPFS:')||/^[0-9a-fA-F]{64}[\\/]/.test(r)||/^(BTC|LTC|DOG|MZC):[0-9a-fA-F]{64}[\\/]/i.test(r)||/^https?:\/\//i.test(r)));
   const hasSalt=refs.some(r=>!TXID_RE.test(r)&&!(r.startsWith('IPFS:')||/^[0-9a-fA-F]{64}[\\/]/.test(r)||/^(BTC|LTC|DOG|MZC):[0-9a-fA-F]{64}[\\/]/i.test(r)||/^https?:\/\//i.test(r)));
   const like=hasSalt&&((!Boolean(text||hasAttachment))||hasTxidRef);
   return{
-    comment:Boolean(text||hasAttachment),
+    comment:Boolean((text&&!plainTxidOnly)||hasAttachment),
     retweet:hasTxidRef,
     like
   };
@@ -1637,11 +1640,16 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
   const profileNavMode=profileNav==='main'?'main':'modal';
   const{clean,attachments,links}=parseMsg(root.message);
   const poll=extractInlinePoll(clean);
-  const cleanText=poll?poll.textWithoutPoll:clean;
+  let cleanText=poll?poll.textWithoutPoll:clean;
   // detect embedded retweet references
   const rawMsg=String(root.message||'').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
-  const retweetTxids=[...rawMsg.matchAll(/<<([0-9a-fA-F]{64})>>/g)].map(m=>m[1].toLowerCase());
+  let retweetTxids=[...rawMsg.matchAll(/<<([0-9a-fA-F]{64})>>/g)].map(m=>m[1].toLowerCase());
+  const plainTxid=TXID_RE.test(norm(cleanText))?norm(cleanText).toLowerCase():'';
+  if(!retweetTxids.length&&plainTxid) retweetTxids=[plainTxid];
   const hasRetweetRef=retweetTxids.length>0;
+  if(hasRetweetRef&&plainTxid&&retweetTxids.includes(plainTxid)&&!attachments.length&&!links.length&&!((root.files||[]).length)){
+    cleanText='';
+  }
   const mediaHtml=[];
   [...attachments,...root.files.map(f=>`${root.txId}/${f}`),...links].forEach(tok=>{
     const info=attachmentPreviewCandidates(tok),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls);
@@ -1914,24 +1922,10 @@ async function appendRetweetQuote(art, txids, profileCache){
       const quoted=await fetchSingleRoot(txid);
       if(!quoted) continue;
       const pc=await buildSenderProfileCache([quoted],profileCache||{});
-      const cached=(pc||{})[quoted.fromAddr]||(pc||{})[quoted.fromAddr?.toLowerCase()];
-      const displayName=cached?cached.displayName:shortAddr(quoted.fromAddr||'');
-      const handle=shortHandle(cached?.urn||'');
-      const aviAttrs=cached?profileImgAttrs(cached.image):`src="${FALLBACK_AVI}"`;
-      const{clean:qClean}=parseMsg(quoted.message);
-      const qPoll=extractInlinePoll(qClean);
-      const qText=qPoll?qPoll.textWithoutPoll:qClean;
+      const mergedCache={...(profileCache||{}),...(pc||{})};
       const qel=document.createElement('div');
       qel.className='rt-quote';
-      qel.onclick=e=>{e.stopPropagation();openPostDetail(txid);};
-      qel.innerHTML=`
-        <div class="rt-quote-hdr">
-          <img class="rt-quote-avi" ${aviAttrs} alt="${esc(displayName)}">
-          <span class="rt-quote-name">${esc(displayName)}</span>
-          ${handle?`<span class="rt-quote-handle">@${esc(handle)}</span>`:''}
-          ${quoted.blockDate?`<span class="rt-quote-time">· ${fmtRel(quoted.blockDate)}</span>`:''}
-        </div>
-        <div class="rt-quote-text">${annotateText(qText||'')}</div>`;
+      qel.appendChild(buildTweetEl(quoted,{profileCache:mergedCache,profileNav:'main',withEngagement:false}));
       slot.appendChild(qel);
     }catch{}
   }
