@@ -1748,6 +1748,10 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
     pendingBadge = `<span class="badge-v badge-unoff" style="margin-left:4px;font-size:0.65rem;">⏳ ${pendingStatus === 'broadcasting' ? 'Broadcasting...' : 'Confirming...'}</span>`;
   }
 
+  if (likedTxid) {
+    art.dataset.likedTxid = likedTxid;
+  }
+
   art.innerHTML=`
     <img class="tweet-avi" ${aviAttrs} alt="${esc(displayName)}" onclick="openProfileTarget('${esc(profileTarget)}','${profileNavMode}')">
     <div class="tweet-body">
@@ -1758,7 +1762,6 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
         ${pendingBadge}
       </div>
       <div class="tweet-text">${annotateText(cleanText||'')}</div>
-      ${likedTxid?`<div style="font-size:0.82rem; margin-bottom:6px;"><button class="tiny-link-btn" onclick="exploreTag('${esc(likedTxid)}')">🔗 ${esc(likedTxid)}...</button></div>`:''}
       ${poll?renderPollCardHtml(root.txId,poll):''}
       ${mediaHtml.join('')}
       ${hasRetweetRef?'<div class="rt-quote-slot"></div>':''}
@@ -1808,7 +1811,11 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
   likeBtn?.addEventListener('click',e=>{e.stopPropagation();sendThreadAction(root.txId,'like',art).catch(()=>{});});
   threadBtn?.addEventListener('click',e=>{
     e.stopPropagation();
-    toggleInlineThread(art,root.txId,{profileCache,onThread,profileNav}).catch(()=>{});
+    if (likedTxid) {
+      if (window.exploreTag) window.exploreTag(likedTxid);
+    } else {
+      toggleInlineThread(art,root.txId,{profileCache,onThread,profileNav}).catch(()=>{});
+    }
   });
   threadMoreBtn?.addEventListener('click',e=>{
     e.stopPropagation();
@@ -1851,7 +1858,7 @@ function updateTweetCardUi(art){
 
   const threadBtn=art.querySelector('.tw-act.thread');
   if(threadBtn) {
-    const hasThread = totals.comments > 0 || totals.retweets > 0;
+    const hasThread = totals.comments > 0 || totals.retweets > 0 || art.dataset.likedTxid;
     threadBtn.style.display = hasThread ? '' : 'none';
   }
 }
