@@ -230,6 +230,18 @@
     .cm-attach-item audio{width:100%}
     .cm-attach-rm{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:50%;background:rgba(0,0,0,.75);border:none;color:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:.75rem}
     .cm-attach-text{font-size:.75rem;font-family:monospace;padding:8px 10px;color:var(--muted);word-break:break-all}
+    .cm-gif-tool{padding:8px 16px 0}
+    .cm-gif-search{display:flex;gap:8px;align-items:center}
+    .cm-gif-search .f-input{padding:8px 12px}
+    .cm-gif-picker{margin-top:8px;max-height:180px;overflow:auto;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;padding-bottom:2px;-webkit-overflow-scrolling:touch}
+    .cm-gif-item{border:1px solid var(--border);border-radius:10px;background:#0b0d12;overflow:hidden;padding:0;display:block;width:100%;min-height:72px}
+    .cm-gif-item img{width:100%;height:72px;object-fit:cover;display:block}
+    .cm-gif-empty{grid-column:1/-1;color:var(--muted);font-size:.82rem;text-align:center;padding:10px 6px}
+    @media(max-width:900px){
+      .cm-gif-picker{max-height:220px;grid-template-columns:repeat(2,minmax(0,1fr))}
+      .cm-gif-item img{height:88px}
+      .cm-gif-search .btn{min-height:36px}
+    }
     .cm-extras{padding:8px 16px 4px;border-top:1px solid var(--border)}
     .cm-extras-toggle{background:none;border:none;color:var(--accent);cursor:pointer;font-size:.85rem;padding:4px 0}
     .cm-extra-fields{padding:8px 16px;display:grid;gap:8px}
@@ -470,6 +482,13 @@
         <input class="f-input" id="cmAttachInput" placeholder="IPFS:cid/file.ext · txid/file.ext · https://…" style="flex:1;" autocomplete="off">
         <button class="btn btn-out btn-sm" onclick="addComposedAttachment()">＋ Attach</button>
       </div>
+      <div class="cm-gif-tool">
+        <div class="cm-gif-search">
+          <input class="f-input" id="cmGifKeyword" placeholder="#gif" style="flex:1;" autocomplete="off">
+          <button class="btn btn-out btn-sm" onclick="refreshGifSelector()">GIF</button>
+        </div>
+        <div class="cm-gif-picker" id="cmGifPicker"></div>
+      </div>
       <div id="cmAttachStatus" class="f-status info hidden"></div>
     </div>
     <div class="cm-extras">
@@ -631,6 +650,7 @@ const MENTION_RE = /@([A-Za-z0-9/]{1,64})/g;
 const FALLBACK_AVI = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect width="96" height="96" rx="48" fill="#1d9bf0"/><circle cx="48" cy="36" r="20" fill="rgba(255,255,255,.9)"/><path d="M16 88c7-20 18-28 32-28s25 8 32 28" fill="rgba(255,255,255,.9)"/></svg>');
 const PAGE_SIZE = 50;
 const THREAD_PREVIEW_BATCH = 5;
+const GIF_PICK_BATCH = 24;
 
 /* ═══════════════════════════════════════════════════
    APP STATE
@@ -650,6 +670,7 @@ const S = {
   sidebarMode: 'trending',
   sidebarRenderToken: 0,
   composeAttachments: [],
+  gifPicker: { keyword:'gif', addr:'', items:[], seen:new Set(), skip:0, done:false, loading:false, token:0 },
   normalizedImg: '',
   handleCheck: null,
   feedLoaded: false,
@@ -2470,6 +2491,106 @@ async function broadcastProfileTx(){
 /* ═══════════════════════════════════════════════════
    COMPOSE
 ═══════════════════════════════════════════════════ */
+function normalizeGifKeyword(raw=''){
+  const clean=norm(raw).replace(/^#+/,'').split(/\s+/)[0]||'gif';
+  return clean.toLowerCase();
+}
+function isGifToken(v=''){
+  return /\.gif(?:$|[?#])/i.test(norm(v));
+}
+function extractGifTokensFromRoot(root){
+  const out=[];
+  const txid=norm(root?.txId||'').toLowerCase();
+  (root?.files||[]).forEach(f=>{if(txid&&isGifToken(f)) out.push(`${txid}/${norm(f)}`);});
+  const parsed=parseMsg(root?.message||'');
+  [...(parsed.attachments||[]),...(parsed.links||[])].forEach(t=>{if(isGifToken(t)) out.push(t);});
+  const raw=String(root?.message||'').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
+  const urlHits=raw.match(/https?:\/\/[^\s<>"']+?\.gif(?:\?[^\s<>"']*)?/gi)||[];
+  const ipfsHits=raw.match(/IPFS:[^\s<>"']+?\.gif(?:\?[^\s<>"']*)?/gi)||[];
+  const onchainHits=raw.match(/(?:BTC|LTC|DOG|MZC:)?[0-9a-fA-F]{64}\/[^\s<>"']+?\.gif/gi)||[];
+  return [...new Set([...out,...urlHits,...ipfsHits,...onchainHits].map(norm).filter(Boolean))];
+}
+function renderGifPicker(){
+  const box=$('cmGifPicker');if(!box) return;
+  const gp=S.gifPicker;
+  clr(box);
+  if(!gp.items.length){
+    const empty=document.createElement('div');
+    empty.className='cm-gif-empty';
+    empty.textContent=gp.loading?`Loading #${gp.keyword} GIFs…`:gp.done?`No GIFs found for #${gp.keyword}.`:`Search GIFs`;
+    box.appendChild(empty);
+    return;
+  }
+  gp.items.forEach(it=>{
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.className='cm-gif-item';
+    btn.title='Attach GIF';
+    btn.innerHTML=`<img src="${esc(it.url)}" alt="GIF" loading="lazy">`;
+    btn.onclick=()=>useGifAttachment(it.token);
+    box.appendChild(btn);
+  });
+  if(gp.loading&&!gp.done){
+    const loading=document.createElement('div');
+    loading.className='cm-gif-empty';
+    loading.textContent='Loading more…';
+    box.appendChild(loading);
+  }
+}
+function bindGifPickerScroll(){
+  const box=$('cmGifPicker');if(!box||box.dataset.bound) return;
+  box.dataset.bound='1';
+  box.addEventListener('scroll',()=>{
+    if(box.scrollTop+box.clientHeight>=box.scrollHeight-90) loadMoreGifSelector();
+  },{passive:true});
+}
+async function loadMoreGifSelector(){
+  const gp=S.gifPicker;
+  if(gp.loading||gp.done) return;
+  gp.loading=true;
+  renderGifPicker();
+  const run=gp.token;
+  try{
+    if(!gp.addr) gp.addr=await kwAddr(gp.keyword||'gif');
+    if(run!==S.gifPicker.token) return;
+    const rows=await fetchMessages(gp.addr,GIF_PICK_BATCH,gp.skip);
+    if(run!==S.gifPicker.token) return;
+    gp.skip+=GIF_PICK_BATCH;
+    rows.forEach(root=>{
+      extractGifTokensFromRoot(root).forEach(tok=>{
+        const info=attachmentPreviewCandidates(tok);
+        const url=info.urls.find(u=>isGifToken(u))||info.urls[0]||'';
+        if(!url||!isGifToken(url)) return;
+        const key=norm(tok).toLowerCase();
+        if(gp.seen.has(key)) return;
+        gp.seen.add(key);
+        gp.items.push({token:tok,url});
+      });
+    });
+    if(rows.length<GIF_PICK_BATCH) gp.done=true;
+  }catch{
+    gp.done=true;
+  }finally{
+    if(run===S.gifPicker.token){
+      gp.loading=false;
+      renderGifPicker();
+    }
+  }
+}
+async function refreshGifSelector(force=false){
+  const inp=$('cmGifKeyword');
+  const keyword=normalizeGifKeyword(inp?.value||S.gifPicker.keyword||'gif');
+  if(inp) inp.value=`#${keyword}`;
+  if(!force&&keyword===S.gifPicker.keyword&&S.gifPicker.items.length){renderGifPicker();return;}
+  S.gifPicker={keyword,addr:'',items:[],seen:new Set(),skip:0,done:false,loading:false,token:S.gifPicker.token+1};
+  renderGifPicker();
+  await loadMoreGifSelector();
+}
+async function useGifAttachment(token){
+  const inp=$('cmAttachInput');
+  if(inp) inp.value=token;
+  await addComposedAttachment();
+}
 function renderComposeAttachments(){
   const prev=$('cmAttachPreview');if(!prev) return;
   clr(prev);
@@ -3182,6 +3303,12 @@ function openModal(id){
   const el=$(id);if(!el) return;
   el.classList.remove('hidden');
   if(id==='modalWallet'){renderWalletUI($('walletModalBody'));}
+  if(id==='modalCompose'){
+    const kw=$('cmGifKeyword');
+    if(kw&&!norm(kw.value)) kw.value='#gif';
+    bindGifPickerScroll();
+    refreshGifSelector();
+  }
   if(id==='modalProfileEdit'&&!S.addr){
     const st=$('peStatus');
     showStatus(st,'Unlock wallet to broadcast profile claim. You can still fill and check handle now.','warn');
@@ -3231,6 +3358,8 @@ $('exploreSearchInput')?.addEventListener('input',e=>{
   exploreTimer=setTimeout(()=>runExploreSearch(e.target.value),420);
 });
 $('exploreSearchInput')?.addEventListener('keydown',e=>{if(e.key==='Enter'){clearTimeout(exploreTimer);runExploreSearch(e.target.value);}});
+$('cmGifKeyword')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();refreshGifSelector(true);}});
+$('cmGifKeyword')?.addEventListener('blur',()=>refreshGifSelector(true));
 
 // Right sidebar search → switch to explore
 $('rSearchInput')?.addEventListener('keydown',e=>{
@@ -3299,6 +3428,7 @@ window.toggleProfileDetails=function(){
 window.estimateProfileTx=estimateProfileTx;
 window.broadcastProfileTx=broadcastProfileTx;
 window.addComposedAttachment=addComposedAttachment;
+window.refreshGifSelector=refreshGifSelector;
 window.toggleExtraFields=toggleExtraFields;
 window.submitCompose=submitCompose;
 window.submitInlinePost=submitInlinePost;
