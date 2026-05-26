@@ -2572,7 +2572,7 @@ async function loadMoreGifSelector(){
     rows.forEach(root=>{
       extractGifTokensFromRoot(root).forEach(tok=>{
         const info=attachmentPreviewCandidates(tok);
-        const gifUrls=info.urls.filter(u=>isGifToken(u));
+        const gifUrls=info.urls;
         const url=gifUrls[0]||'';
         if(!url) return;
         const key=norm(tok).toLowerCase();
