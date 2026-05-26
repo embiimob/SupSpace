@@ -1419,36 +1419,47 @@ async function fetchProfileByAddr(addr){
   const req=(async()=>{
     const r=await fetchJ(`${API_BASE}/GetProfileByAddress/${encodeURIComponent(addr)}?mainnet=false`);
     let p=normalizeProfile(Array.isArray(r)?r[0]:r,addr);
-    if(p?.urn&&!p.image){
+    if(p?.urn){
       try{
-        const byUrn=await fetchProfileByURN(p.urn);
-        if(byUrn?.image) p={...p,image:byUrn.image};
+        const byUrn=await fetchProfileByURN(p.urn,true);
+        if(byUrn?.image&&!p.image) p={...p,image:byUrn.image};
+        const addrCreator=norm(p?.creators?.[0]||'');
+        const urnCreator=norm(byUrn?.creators?.[0]||'');
+        const ownerMismatch=Boolean(byUrn?.addr&&byUrn.addr!==p.addr);
+        const creatorMismatch=Boolean(addrCreator&&urnCreator&&addrCreator!==urnCreator);
+        p={...p,isClaimedProfile:ownerMismatch||creatorMismatch,claimEmoji:(ownerMismatch||creatorMismatch)?'⚠️':'',officialAddr:norm(byUrn?.addr||'')};
       }catch{}
     }
-    if(p){S.profileCache.set(key,p);if(p.urn)S.profileCache.set(`u:${p.urn}`,p);}
+    if(p) S.profileCache.set(key,p);
     return p;
   })().finally(()=>S.profileReqCache.delete(key));
   S.profileReqCache.set(key,req);
   return req;
 }
-async function fetchProfileByURN(urn){
-  const key=`u:${urn}`;
-  if(S.profileCache.has(key)) return S.profileCache.get(key);
-  if(S.profileReqCache.has(key)) return S.profileReqCache.get(key);
+async function fetchProfileByURN(urn,forceRefresh=false){
+  const cleanUrn=norm(urn);
+  if(!cleanUrn) return null;
+  const key=`u:${cleanUrn}`;
+  if(!forceRefresh&&S.profileCache.has(key)) return S.profileCache.get(key);
+  if(!forceRefresh&&S.profileReqCache.has(key)) return S.profileReqCache.get(key);
   const req=(async()=>{
-    const r=await fetchJ(`${API_BASE}/GetProfileByURN/${encodeURIComponent(urn)}?mainnet=false`);
+    const r=await fetchJ(`${API_BASE}/GetProfileByURN/${encodeURIComponent(cleanUrn)}?mainnet=false`);
     const p=normalizeProfile(Array.isArray(r)?r[0]:r);
     if(p){S.profileCache.set(key,p);if(p.addr)S.profileCache.set(`a:${p.addr}`,p);}
     return p;
-  })().finally(()=>S.profileReqCache.delete(key));
-  S.profileReqCache.set(key,req);
+  })();
+  if(!forceRefresh){
+    S.profileReqCache.set(key,req);
+    req.finally(()=>S.profileReqCache.delete(key));
+  }
   return req;
 }
 async function isOfficial(profile){
   if(!profile?.urn||!profile?.addr) return true;
   try{
     const byAddr=await fetchProfileByAddr(profile.addr)||profile;
-    const byUrn=await fetchProfileByURN(profile.urn);
+    const byUrn=await fetchProfileByURN(byAddr?.urn||profile.urn,true);
+    if(!byUrn?.addr||byUrn.addr!==byAddr?.addr) return false;
     const addrCreator=norm(byAddr?.creators?.[0]||profile?.creators?.[0]||'');
     const urnCreator=norm(byUrn?.creators?.[0]||'');
     if(!addrCreator||!urnCreator) return false;
@@ -1956,6 +1967,7 @@ function buildProfilePageEl(profile, official, posts=[], ownProfile=false, extra
   const followed=S.followed.has(profile.addr);
   const linksHtml=Object.entries(profile.urls||{}).map(([k,v])=>`<a href="${esc(v)}" target="_blank" rel="noopener" style="color:var(--accent);">🔗 ${esc(k)}</a>`).join(' ');
   const locHtml=Object.values(profile.loc||{}).join(', ');
+  const claimEmoji=!official||profile.isClaimedProfile?`<span title="Claimed handle: official owner differs">⚠️</span>`:'';
 
   let pendingBadge = '';
   if (profile.isPending) {
@@ -1981,7 +1993,7 @@ function buildProfilePageEl(profile, official, posts=[], ownProfile=false, extra
     </div>
     <div class="profile-info">
       <div class="profile-name">${esc(profile.displayName)} ${pendingBadge}</div>
-      ${profile.urn?`<div class="profile-handle">@${esc(shortHandle(profile.urn,30))} <span class="${official?'badge-v':'badge-v badge-unoff'}">${official?'✓ Official':'! Not official'}</span> ${!official?`<button class="tiny-link-btn" onclick="runExploreSearch('@${esc(profile.urn)}')">See official</button>`:''}</div>`:
+      ${profile.urn?`<div class="profile-handle">@${esc(shortHandle(profile.urn,30))} ${claimEmoji} <span class="${official?'badge-v':'badge-v badge-unoff'}">${official?'✓ Official':'! Not official'}</span> ${!official?`<button class="tiny-link-btn" onclick="runExploreSearch('@${esc(profile.urn)}')">See official</button>`:''}</div>`:
         `<div class="profile-handle mono">${esc(profile.addr)}</div>`}
       ${profileQuery?`<div style="margin-top:6px;"><button class="tiny-link-btn" onclick="shareQueryLink('${esc(profileQuery)}','SupSpace profile')">🔗 Share profile</button></div>`:''}
       ${profile.bio?`<div class="profile-bio">${esc(profile.bio)}</div>`:''}
