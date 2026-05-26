@@ -1988,7 +1988,11 @@ function buildProfilePageEl(profile, official, posts=[], ownProfile=false, extra
   const profileQuery=profile?.urn?`@${profile.urn}`:profile?.addr;
   const blocked=isBlockedAddr(profile.addr);
   const followed=S.followed.has(profile.addr);
-  const linksHtml=Object.entries(profile.urls||{}).map(([k,v])=>`<a href="${esc(v)}" target="_blank" rel="noopener" style="color:var(--accent);">🔗 ${esc(k)}</a>`).join(' ');
+  const linksHtml=Object.entries(profile.urls||{}).map(([k,v])=>{
+    if(k.toLowerCase()==='pin') return '';
+    if(v.startsWith('@')) return `<a href="javascript:void(0);" onclick="openUserProfile('${esc(v.slice(1))}')" style="color:var(--accent);">🔗 ${esc(k)}</a>`;
+    return `<a href="${esc(v)}" target="_blank" rel="noopener" style="color:var(--accent);">🔗 ${esc(k)}</a>`;
+  }).filter(Boolean).join(' ');
   const locHtml=Object.values(profile.loc||{}).join(', ');
   const claimEmoji=!official||profile.isClaimedProfile?`<span title="Claimed handle: official owner differs">⚠️</span>`:'';
 
@@ -2054,7 +2058,47 @@ async function renderProfileWithPagination(container, profile, official, ownProf
   container.appendChild(pageEl);
   const feedWrap=pageEl.querySelector('[data-profile-feed="1"]');
   if(!feedWrap||isBlockedAddr(profile.addr)) return;
+
   const seen=new Set(initialPosts.map(r=>r?.txId).filter(Boolean));
+
+  // Handle pinned tweets
+  const pinTxids = Object.entries(profile.urls||{})
+    .filter(([k,v])=>k.trim().toLowerCase()==='pin'&&TXID_RE.test(v.trim()))
+    .map(([k,v])=>v.trim().toLowerCase());
+  for (let i=pinTxids.length-1; i>=0; i--) {
+    const pinTxid = pinTxids[i];
+    try {
+      const pinRoot = await fetchSingleRoot(pinTxid);
+      if (pinRoot && pinRoot.txId) {
+        seen.add(pinRoot.txId);
+        const pCache = await buildSenderProfileCache([pinRoot], postCache);
+        Object.assign(postCache, pCache||{});
+
+        let el;
+        const profileCreator = norm(profile.creators?.[0] || profile.addr);
+        if (norm(pinRoot.fromAddr) === profileCreator) {
+           el = buildTweetEl(pinRoot, {profileCache: postCache});
+        } else {
+           const fakeRtRoot = {
+               txId: 'pin_' + pinRoot.txId,
+               fromAddr: profile.addr,
+               message: `<<${pinRoot.txId}>>`,
+               files: []
+           };
+           el = buildTweetEl(fakeRtRoot, {profileCache: postCache});
+        }
+
+        const pinIndicator = document.createElement('div');
+        pinIndicator.style.cssText = 'font-size:0.8rem;color:var(--muted);margin-bottom:4px;display:flex;align-items:center;gap:4px;padding-left:12px;padding-top:8px;';
+        pinIndicator.innerHTML = '📌 Pinned';
+        el.insertBefore(pinIndicator, el.firstChild);
+
+        const empty=feedWrap.querySelector('.feed-empty');
+        if(empty) empty.remove();
+        feedWrap.insertBefore(el, feedWrap.firstChild);
+      }
+    } catch (e) {}
+  }
   let skip=initialPosts.length;
   const loadMore=async(ctx)=>{
     if(!ctx||ctx.loading||ctx.done||token!==S.runTokens.profile) return;
