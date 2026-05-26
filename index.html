@@ -833,6 +833,7 @@ function asRoot(raw){
     txId:norm(raw.txId).toLowerCase(),
     fromAddr:norm(raw.fromAddr),
     message:String(raw.message??''),
+    toAddrs:Array.isArray(raw.toAddrs)?raw.toAddrs:[],
     files:Array.isArray(raw.files)?raw.files:[],
     blockDate:raw.blockDate||''
   };
@@ -1429,11 +1430,19 @@ function normalizeRoot(raw){
   const signedBy=norm(raw['Signed By']??raw.SignedBy??raw.FromAddress??'');
   const blockDate=raw['Block Date']??raw.BlockDate??'';
   const txId=norm(raw['Transaction Id']??raw.TransactionId??raw['Transaction ID']??'').toLowerCase();
-  const outputObj=raw.Output??raw['Output']??{};
-  const outputAddrs=Object.keys(outputObj||{});
+  const outputObj=raw.Output??raw['Output'];
+  let toAddrs = [];
+  if (outputObj) {
+    const outputAddrs=Object.keys(outputObj||{});
+    toAddrs = outputAddrs.length>1?outputAddrs.slice(Math.max(0,outputAddrs.length-3),outputAddrs.length-1):[];
+  } else {
+    const ta = raw.ToAddress ?? raw.ToAddresses;
+    if (Array.isArray(ta)) toAddrs = ta.map(norm);
+    else if (typeof ta === 'string' && ta) toAddrs = [norm(ta)];
+  }
   const rawFile=raw.File??raw['File']??null;
   const files=(rawFile&&typeof rawFile==='object'&&!Array.isArray(rawFile))?Object.keys(rawFile).filter(f=>f&&f!=='SIG'):[];
-  return{message,fromAddr:signedBy,toAddrs:outputAddrs.length>1?outputAddrs.slice(Math.max(0,outputAddrs.length-3),outputAddrs.length-1):[],blockDate,txId,files,raw};
+  return{message,fromAddr:signedBy,toAddrs,blockDate,txId,files,raw};
 }
 
 async function fetchProfileByAddr(addr){
