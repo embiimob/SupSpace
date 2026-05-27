@@ -482,8 +482,10 @@
       <div style="display:flex;gap:8px;align-items:center;">
         <input class="f-input" id="cmAttachInput" placeholder="IPFS:cid/file.ext · txid/file.ext · https://…" style="flex:1;" autocomplete="off">
         <button class="btn btn-out btn-sm" onclick="addComposedAttachment()">＋ Attach</button>
+        <button class="btn btn-out btn-sm" id="cmUploadBtn" onclick="triggerComposeFileUpload()">Upload</button>
         <button class="btn btn-out btn-sm" id="cmGifToggleBtn" onclick="toggleGifSelector()">GIF</button>
       </div>
+      <input type="file" id="cmAttachFile" class="hidden" onchange="uploadComposeAttachmentFile()">
       <div class="cm-gif-tool hidden" id="cmGifTool" style="padding:8px 0 0;">
         <div class="cm-gif-search">
           <input class="f-input" id="cmGifKeyword" placeholder="#gif" style="flex:1;" autocomplete="off">
@@ -1278,6 +1280,42 @@ function mediaKindFromPath(path=''){
   if(VID_RE.test(p)) return 'video';
   if(AUD_RE.test(p)) return 'audio';
   return 'file';
+}
+function sanitizeUploadFileName(name=''){
+  const base=norm(String(name||'')).replace(/[\\/]+/g,'_').replace(/\s+/g,'_');
+  const safe=base.split('.').map(part=>part.replace(UNSAFE_RE,'')).filter(Boolean).join('.');
+  if(!safe) throw new Error('Upload needs a valid file name');
+  return safe.slice(0,120);
+}
+function extractUploadCid(payload){
+  const read=v=>{
+    const t=norm(v);
+    if(!t) return '';
+    if(CID_RE.test(t)) return t;
+    const m=t.match(/(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[1-9A-HJ-NP-Za-km-z]{20,})/i);
+    return m?.[1]||'';
+  };
+  if(typeof payload==='string') return read(payload);
+  if(payload&&typeof payload==='object'){
+    const direct=[
+      payload.cid,payload.CID,payload.hash,payload.Hash,payload.ipfs,payload.ipfsCid,payload.IpfsHash,
+      payload?.data?.cid,payload?.result?.cid,payload?.payload?.cid
+    ];
+    for(const v of direct){const c=read(v);if(c) return c;}
+    return read(JSON.stringify(payload));
+  }
+  return '';
+}
+async function waitForIpfsIo(cid,path='',tries=8,gapMs=2500){
+  const checkUrl=buildIpfsUrl(cid,path,0);
+  for(let i=0;i<tries;i++){
+    try{
+      const r=await fetch(checkUrl,{method:'HEAD',cache:'no-store'});
+      if(r.ok) return true;
+    }catch{}
+    if(i<tries-1) await new Promise(res=>setTimeout(res,gapMs));
+  }
+  return false;
 }
 function attachmentPreviewCandidates(token){
   const t=norm(token);
@@ -2787,6 +2825,46 @@ async function addComposedAttachment(){
     renderComposeAttachments();
   }catch(e){if(st)showStatus(st,e.message||'Invalid attachment','danger');}
 }
+function triggerComposeFileUpload(){
+  const inp=$('cmAttachFile');
+  if(inp) inp.click();
+}
+async function uploadComposeAttachmentFile(){
+  const fileInp=$('cmAttachFile'),txtInp=$('cmAttachInput'),st=$('cmAttachStatus'),btn=$('cmUploadBtn');
+  if(!fileInp?.files?.length){if(st)showStatus(st,'Choose a file to upload first','warn');return;}
+  const file=fileInp.files[0];
+  let fileName='';
+  try{fileName=sanitizeUploadFileName(file?.name||'');}
+  catch(e){if(st)showStatus(st,e.message||'Invalid filename','danger');fileInp.value='';return;}
+  try{
+    if(btn) btn.disabled=true;
+    showStatus(st,`Uploading ${fileName} to p2fk.io…`,'info');
+    const fd=new FormData();
+    fd.append('file',file,fileName);
+    const r=await fetch(`${API_BASE}/ipfs`,{method:'POST',body:fd});
+    if(!r.ok) throw new Error(`Upload failed (${r.status})`);
+    const raw=await r.text();
+    let payload=raw;
+    try{payload=JSON.parse(raw);}catch{}
+    const cid=extractUploadCid(payload);
+    if(!CID_RE.test(cid)) throw new Error('Upload succeeded but no valid CID was returned');
+    const canonical=`IPFS:${cid}/${fileName}`;
+    if(!S.composeAttachments.includes(canonical)) S.composeAttachments.push(canonical);
+    if(txtInp) txtInp.value=canonical;
+    renderComposeAttachments();
+    showStatus(st,'Uploaded and pinned for 1 hour. Preview may take time to appear—please wait before posting. Files over a few MB can take much longer.','warn');
+    const previewReady=await waitForIpfsIo(cid,fileName);
+    if(previewReady){
+      renderComposeAttachments();
+      showStatus(st,`Preview ready on ipfs.io · Attached: ${canonical.slice(0,80)}`,'good');
+    }
+  }catch(e){
+    if(st) showStatus(st,e.message||'Upload failed','danger');
+  }finally{
+    if(btn) btn.disabled=false;
+    if(fileInp) fileInp.value='';
+  }
+}
 function toggleExtraFields(){const el=$('cmExtraFields');if(el)el.classList.toggle('hidden');}
 async function resolveExtraRecipients(){
   const recs=new Set();
@@ -3599,6 +3677,8 @@ window.toggleProfileDetails=function(){
 window.estimateProfileTx=estimateProfileTx;
 window.broadcastProfileTx=broadcastProfileTx;
 window.addComposedAttachment=addComposedAttachment;
+window.triggerComposeFileUpload=triggerComposeFileUpload;
+window.uploadComposeAttachmentFile=uploadComposeAttachmentFile;
 window.refreshGifSelector=refreshGifSelector;
 window.toggleGifSelector=toggleGifSelector;
 window.toggleExtraFields=toggleExtraFields;
