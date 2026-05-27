@@ -1170,18 +1170,21 @@ async function signMsg(text){
   return btoa(String.fromCharCode.apply(null,c));
 }
 
+async function deriveKeywordAddress(keyword){
+  const tok=norm(keyword).replace(/^#/,'');
+  const b=new TextEncoder().encode(tok);
+  const p=new Uint8Array(21);
+  p[0]=P2FK_VER;
+  p.fill(P2FK_PAD.charCodeAt(0),1);
+  if(b.length) p.set(b.slice(0,P2FK_CHUNK),1);
+  return encB58C(p);
+}
+
 async function kwAddr(keyword){
   const tok=norm(keyword).replace(/^#/,'');
   if(!tok) return '';
   if(S.kwCache.has(tok)) return S.kwCache.get(tok);
-  try{
-    const r=await fetch(`${API_BASE}/GetPublicAddressByKeyword/${encodeURIComponent(tok)}?mainnet=false`);
-    if(r.ok){const t=norm(await r.text()).replace(/^"|"$/g,'');if(isAddr(t)){S.kwCache.set(tok,t);return t;}}
-  }catch{}
-  // local fallback
-  const b=new TextEncoder().encode(tok);
-  const p=new Uint8Array(21);p[0]=P2FK_VER;if(b.length>=20)p.set(b.slice(0,20),1);else{p.set(b,1);p.fill('#'.charCodeAt(0),1+b.length);}
-  const local=await encB58C(p);
+  const local=await deriveKeywordAddress(tok);
   S.kwCache.set(tok,local);
   return local;
 }
@@ -1241,9 +1244,7 @@ async function buildProOutputs({urn,fnm,mnm,lnm,sfx,bio,img,urls,loc,enableSec})
   const enc=await encP2FK(payload);
   const rset=new Set(enc);
   // URN keyword address
-  const kb=new TextEncoder().encode(urn);
-  const kp=new Uint8Array(21);kp[0]=P2FK_VER;if(kb.length>=20)kp.set(kb.slice(0,20),1);else{kp.set(kb,1);kp.fill('#'.charCodeAt(0),1+kb.length);}
-  rset.add(await encB58C(kp));
+  rset.add(await deriveKeywordAddress(urn));
   rset.add(S.addr);
   return[...rset].map(addr=>({addr,amount:AMOUNT_PER}));
 }
