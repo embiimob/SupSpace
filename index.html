@@ -543,8 +543,10 @@
         <label class="f-label">Profile image</label>
         <div style="display:flex;gap:8px;align-items:center;">
           <input class="f-input" id="peImg" placeholder="IPFS:cid/img.png · txid/img.png · https://…" style="flex:1;" autocomplete="off" oninput="onProfileImageInput()">
+          <button class="btn btn-out btn-sm" id="peImgUploadBtn" onclick="triggerProfileImageUpload()">Upload image</button>
           <button class="btn btn-out btn-sm" onclick="validateProfileImage()">Validate</button>
         </div>
+        <input type="file" id="peImgFile" class="hidden" accept="image/*" onchange="uploadProfileImageFile()">
         <div id="peImgPreview" class="hidden" style="margin-top:8px;display:flex;align-items:center;gap:12px;">
           <img id="peImgPreviewImg" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid var(--border);" alt="Preview">
           <span class="chip" id="peImgBadge">Unchecked</span>
@@ -2670,6 +2672,64 @@ async function validateProfileImage(){
     showStatus(st,'Image validated','good');
   }catch(e){setChip($('peImgBadge'),'Invalid','danger');showStatus(st,e.message||'Image validation failed','danger');}
 }
+function triggerProfileImageUpload(){
+  const inp=$('peImgFile');
+  if(inp) inp.click();
+}
+async function uploadProfileImageFile(){
+  const fileInp=$('peImgFile'),txtInp=$('peImg'),st=$('peStatus'),btn=$('peImgUploadBtn');
+  if(!fileInp?.files?.length){if(st)showStatus(st,'Choose a file to upload first','warn');return;}
+  const file=fileInp.files[0];
+  let fileName='';
+  try{
+    fileName=sanitizeUploadFileName(file?.name||'');
+    const type=norm(file?.type||'').toLowerCase();
+    if(!(type.startsWith('image/')||IMG_RE.test(fileName))) throw new Error('Profile image upload requires an image file');
+  }catch(e){
+    if(st)showStatus(st,e.message||'Invalid image file','danger');
+    if(fileInp) fileInp.value='';
+    return;
+  }
+  try{
+    if(btn) btn.disabled=true;
+    showStatus(st,`Uploading ${fileName} to p2fk.io…`,'info');
+    const fd=new FormData();
+    fd.append('file',file,fileName);
+    const r=await fetch(`${API_BASE}/ipfs`,{method:'POST',body:fd});
+    if(!r.ok) throw new Error(`Upload failed (${r.status})`);
+    const raw=await r.text();
+    let payload=raw;
+    try{payload=JSON.parse(raw);}catch{}
+    const cid=extractUploadCid(payload);
+    if(!CID_RE.test(cid)) throw new Error('Upload succeeded but no valid CID was returned');
+    const uploaded=await normalizeAttach(`IPFS:${cid}/${fileName}`,{imgOnly:true});
+    S.normalizedImg=uploaded.canonical;
+    if(txtInp) txtInp.value=uploaded.canonical;
+    const prev=$('peImgPreview'),img=$('peImgPreviewImg');
+    if(prev) prev.classList.remove('hidden');
+    if(img){
+      const cands=profileImgCandidates(uploaded.canonical);
+      img.src=cands[0]||uploaded.preview||uploaded.canonical;
+      img.dataset.cands=JSON.stringify([...cands.slice(1),FALLBACK_AVI]);
+      img.onerror=()=>window.pi_err(img);
+    }
+    setChip($('peImgBadge'),'Valid','good');
+    showStatus(st,'Uploaded and pinned for 1 hour. Preview may take time to appear—please wait before posting. Files over a few MB can take much longer.','warn');
+    const previewReady=await waitForIpfsIo(cid,fileName);
+    if(previewReady){
+      if(img){
+        const cands=profileImgCandidates(uploaded.canonical);
+        img.src=cands[0]||uploaded.preview||uploaded.canonical;
+      }
+      showStatus(st,`Preview ready on ipfs.io · Image set: ${uploaded.canonical.slice(0,80)}`,'good');
+    }
+  }catch(e){
+    if(st) showStatus(st,e.message||'Image upload failed','danger');
+  }finally{
+    if(btn) btn.disabled=false;
+    if(fileInp) fileInp.value='';
+  }
+}
 async function estimateProfileTx(){
   const st=$('peStatus'),cn=$('peCostNote');
   try{
@@ -3756,6 +3816,8 @@ window.forgetWallet=forgetWallet;
 window.addKvRow=addKvRow;
 window.checkProfileHandle=checkProfileHandle;
 window.validateProfileImage=validateProfileImage;
+window.triggerProfileImageUpload=triggerProfileImageUpload;
+window.uploadProfileImageFile=uploadProfileImageFile;
 window.onProfileImageInput=function(){
   const raw=norm($('peImg')?.value||'');
   if(!raw){
