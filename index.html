@@ -1263,15 +1263,15 @@ function buildIpfsUrl(cid,path='',gi=0){const gw=IPFS_GWS[Math.abs(gi)%IPFS_GWS.
 function extractIpfsParts(v){
   const input=norm(v);if(!input) return null;
   if(/^ipfs:/i.test(input)){const b=input.replace(/^ipfs:/i,'').replace(/^\/+/,'');const[cr,...ps]=b.split(/[\\/]+/).filter(Boolean);const cid=norm(cr||'');return CID_RE.test(cid)?{cid,path:ps.join('/')}:null;}
-  const loose=input.match(/(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[1-9A-HJ-NP-Za-km-z]{20,})(?:[\\/]+([^\s<>]+))?/i);
+  const loose=input.match(/(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[1-9A-HJ-NP-Za-km-z]{20,})(?:[\\/]+([^<>]+))?/i);
   if(loose) return{cid:loose[1],path:norm(loose[2]||'')};
   try{const u=new URL(input);const hs=norm(u.hostname).split('.ipfs.');if(hs.length>1&&CID_RE.test(hs[0]))return{cid:hs[0],path:norm(u.pathname).replace(/^\/+/,'')};const pm=norm(u.pathname).match(IPFS_PATH_RE);if(pm)return{cid:pm[1],path:norm(pm[2]||'')};}catch{}
   return null;
 }
-function normOnChain(v){const t=norm(v);const m=t.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})[\\/]([^\s<>]+)$/);if(!m)return null;const chain=norm(m[1]||'');const txid=m[2].toLowerCase();const path=norm(m[3]).replace(/^\/+/,'').replace(UNSAFE_RE,'');if(!path)throw new Error('Attachment needs filename');return`${chain?chain.toUpperCase()+':':''}${txid}/${path}`;}
+function normOnChain(v){const t=norm(v);const m=t.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})[\\/]([^<>]+)$/);if(!m)return null;const chain=norm(m[1]||'');const txid=m[2].toLowerCase();const path=norm(m[3]).replace(/^\/+/,'').replace(UNSAFE_RE,'');if(!path)throw new Error('Attachment needs filename');return`${chain?chain.toUpperCase()+':':''}${txid}/${path}`;}
 function onchainFileUrl(txid,path=''){
   const safePath=norm(path).replace(/^\/+/,'').split('/').filter(Boolean).map(p=>encodeURIComponent(p)).join('/');
-  return `${BITFOSSIL_BASE}/${txid.toLowerCase()}/root/${safePath}`;
+  return `${API_BASE}/root/${txid.toLowerCase()}/${safePath}`;
 }
 async function normalizeAttach(raw,{imgOnly=false}={}){
   const input=norm(raw);if(!input) throw new Error('Enter an attachment reference');
@@ -1344,7 +1344,7 @@ function attachmentPreviewCandidates(token){
     }
     return{kind:mediaKindFromPath(ipfs.path),urls:[...new Set(urls)],raw:t};
   }
-  const oc=t.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})[\\/]([^\s<>]+)$/);
+  const oc=t.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})[\\/]([^<>]+)$/);
   if(oc){
     const txid=oc[2].toLowerCase(),path=oc[3];
     return{kind:mediaKindFromPath(path),urls:[onchainFileUrl(txid,path)],raw:t};
@@ -1383,7 +1383,7 @@ function profileImgCandidates(ref){
     if(ipfs.path) IPFS_GWS.forEach((gw,gi)=>cands.push(buildIpfsUrl(ipfs.cid,ipfs.path,gi)));
     return cands;
   }
-  const oc=v.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})[\\/]([^\s<>]+)$/);
+  const oc=v.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})[\\/]([^<>]+)$/);
   if(oc) return[onchainFileUrl(oc[2],oc[3])];
   return[];
 }
@@ -2823,7 +2823,7 @@ function extractGifTokensFromRoot(root){
   const raw=String(root?.message||'').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
   const urlHits=raw.match(/https?:\/\/[^\s<>"']+?\.gif(?:\?[^\s<>"']*)?/gi)||[];
   const ipfsHits=raw.match(/IPFS:[^\s<>"']+?\.gif(?:\?[^\s<>"']*)?/gi)||[];
-  const onchainHits=raw.match(/(?:BTC|LTC|DOG|MZC:)?[0-9a-fA-F]{64}\/[^\s<>"']+?\.gif/gi)||[];
+  const onchainHits=raw.match(/(?:BTC|LTC|DOG|MZC:)?[0-9a-fA-F]{64}\/[^<>"']+?\.gif/gi)||[];
   return [...new Set([...out,...urlHits,...ipfsHits,...onchainHits].map(norm).filter(Boolean))];
 }
 function renderGifPicker(){
