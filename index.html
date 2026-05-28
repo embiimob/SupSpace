@@ -670,6 +670,8 @@ const S = {
   myProfile: null,
   profileCache: new Map(),
   profileReqCache: new Map(),
+  threadPreviewMsgCache: new Map(),
+  threadPreviewReqCache: new Map(),
   kwCache: new Map(),
   followed: new Set(),
   blocked: new Set(),
@@ -1544,6 +1546,41 @@ async function fetchMessages(addr,qty=25,skip=0){
   const r=await fetchJ(`${API_BASE}/GetPublicMessagesByAddress/${encodeURIComponent(addr)}?mainnet=false&skip=${Math.max(0,Number(skip)||0)}&qty=${qty}`,30000);
   return blockFilterRows((Array.isArray(r)?r:[]).map(item=>normalizeRoot(item.Root||item.root||item)).filter(Boolean));
 }
+function threadPreviewCacheKey(addr,qty,skip){
+  return `${norm(addr)}|${Math.max(1,Number(qty)||0)}|${Math.max(0,Number(skip)||0)}`;
+}
+async function fetchThreadPreviewMessages(addr,qty=25,skip=0){
+  const key=threadPreviewCacheKey(addr,qty,skip);
+  if(S.threadPreviewMsgCache.has(key)) return S.threadPreviewMsgCache.get(key);
+  if(S.threadPreviewReqCache.has(key)) return S.threadPreviewReqCache.get(key);
+  const req=fetchMessages(addr,qty,skip).then(rows=>{
+    S.threadPreviewMsgCache.set(key,rows);
+    return rows;
+  }).finally(()=>S.threadPreviewReqCache.delete(key));
+  S.threadPreviewReqCache.set(key,req);
+  return req;
+}
+function clearThreadPreviewCacheByAddr(addr){
+  const target=norm(addr);
+  if(!target) return;
+  const prefix=`${target}|`;
+  for(const key of S.threadPreviewMsgCache.keys()){
+    if(key.startsWith(prefix)) S.threadPreviewMsgCache.delete(key);
+  }
+  for(const key of S.threadPreviewReqCache.keys()){
+    if(key.startsWith(prefix)) S.threadPreviewReqCache.delete(key);
+  }
+}
+function clearThreadPreviewCacheByTweet(art,txid){
+  const knownAddr=norm(art?._threadState?.addr||'');
+  if(knownAddr){
+    clearThreadPreviewCacheByAddr(knownAddr);
+    return;
+  }
+  kwAddr(norm(txid).toLowerCase())
+    .then(clearThreadPreviewCacheByAddr)
+    .catch(()=>{});
+}
 async function fetchSingleRoot(txid){
   const t=norm(txid).toLowerCase();
   if(!TXID_RE.test(t)) return null;
@@ -1859,7 +1896,11 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
   const likeBtn=art.querySelector('.tw-act.like');
   const threadBtn=art.querySelector('.tw-act.thread');
   const threadMoreBtn=art.querySelector('.tweet-inline-thread .tiny-link-btn');
-  replyBtn?.addEventListener('click',e=>{e.stopPropagation();(onReply||window.openReply)?.(root.txId);});
+  replyBtn?.addEventListener('click',e=>{
+    e.stopPropagation();
+    clearThreadPreviewCacheByTweet(art,root.txId);
+    (onReply||window.openReply)?.(root.txId);
+  });
   retweetBtn?.addEventListener('click',e=>{e.stopPropagation();sendThreadAction(root.txId,'retweet',art).catch(()=>{});});
   likeBtn?.addEventListener('click',e=>{e.stopPropagation();sendThreadAction(root.txId,'like',art).catch(()=>{});});
   threadBtn?.addEventListener('click',e=>{
@@ -1964,7 +2005,7 @@ async function fillThreadData(art,minVisible,{profileCache={}}={}){
   state.loading=true;
   try{
     while(visibleInlineEntries(state).length<minVisible&&!state.done){
-      const rows=await fetchMessages(state.addr,PAGE_SIZE,state.skip);
+      const rows=await fetchThreadPreviewMessages(state.addr,PAGE_SIZE,state.skip);
       state.skip+=PAGE_SIZE;
       if(rows.length<PAGE_SIZE) state.done=true;
       const fresh=[];
