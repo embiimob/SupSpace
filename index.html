@@ -543,8 +543,10 @@
         <label class="f-label">Profile image</label>
         <div style="display:flex;gap:8px;align-items:center;">
           <input class="f-input" id="peImg" placeholder="IPFS:cid/img.png · txid/img.png · https://…" style="flex:1;" autocomplete="off" oninput="onProfileImageInput()">
+          <button class="btn btn-out btn-sm" id="peImgUploadBtn" onclick="triggerProfileImageUpload()">Upload image</button>
           <button class="btn btn-out btn-sm" onclick="validateProfileImage()">Validate</button>
         </div>
+        <input type="file" id="peImgFile" class="hidden" accept="image/*" onchange="uploadProfileImageFile()">
         <div id="peImgPreview" class="hidden" style="margin-top:8px;display:flex;align-items:center;gap:12px;">
           <img id="peImgPreviewImg" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid var(--border);" alt="Preview">
           <span class="chip" id="peImgBadge">Unchecked</span>
@@ -2353,17 +2355,32 @@ function renderWalletUI(container, balance=null){
       <textarea class="f-input mono" id="wifExportBox" rows="3" readonly autocapitalize="off" autocomplete="off" spellcheck="false"></textarea>
     </div>`;
   } else {
-    html+=`<div class="f-field"><label class="f-label">WIF private key (testnet3)</label><input class="f-input" id="wWif" type="password" placeholder="c… or 9… testnet3 WIF" autocomplete="off"></div>
-    <div class="f-field"><label class="f-label">Encryption password (min ${WALLET_MIN_PASS} chars)</label><input class="f-input" id="wPass" type="password" autocomplete="new-password"></div>
-    <div class="btn-row" style="margin-bottom:16px;">
-      <button class="btn btn-out btn-sm" onclick="generateKey()">Generate address</button>
-      <button class="btn btn-acc btn-sm" onclick="importWallet()">Import + unlock</button>
-    </div>
-    <hr class="divider">
-    <div class="f-field"><label class="f-label">Unlock saved wallet</label><input class="f-input" id="wUnlockPass" type="password" autocomplete="current-password" placeholder="Unlock password"></div>
-    <button class="btn btn-acc btn-sm" onclick="unlockWallet()">Unlock</button>`;
     const stored=localStorage.getItem(WALLET_KEY);
-    if(!stored) html+=`<div class="f-status warn" style="margin-top:10px;">No stored wallet found — import or generate one first.</div>`;
+    if(stored){
+      html+=`<div class="f-field"><label class="f-label">Unlock saved wallet</label><input class="f-input" id="wUnlockPass" type="password" autocomplete="current-password" placeholder="Unlock password"></div>
+      <button class="btn btn-acc btn-sm" onclick="unlockWallet()">Unlock</button>
+      <hr class="divider">
+      <button type="button" class="btn btn-out btn-sm" style="margin-bottom:8px;" onclick="(function(btn){const sec=btn.closest('#walletModalBody,#walletViewBody').querySelector('#wImportSection');const open=sec.style.display!=='none';sec.style.display=open?'none':'block';btn.textContent=open?'Change accounts ▸':'Change accounts ▴';})(this)">Change accounts ▸</button>
+      <div id="wImportSection" style="display:none;">
+        <div class="f-field"><label class="f-label">WIF private key (testnet3)</label><input class="f-input" id="wWif" type="password" placeholder="c… or 9… testnet3 WIF" autocomplete="off"></div>
+        <div class="f-field"><label class="f-label">Encryption password (min ${WALLET_MIN_PASS} chars)</label><input class="f-input" id="wPass" type="password" autocomplete="new-password"></div>
+        <div class="btn-row" style="margin-bottom:16px;">
+          <button class="btn btn-out btn-sm" onclick="generateKey()">Generate address</button>
+          <button class="btn btn-acc btn-sm" onclick="importWallet()">Import + unlock</button>
+        </div>
+      </div>`;
+    } else {
+      html+=`<div class="f-field"><label class="f-label">WIF private key (testnet3)</label><input class="f-input" id="wWif" type="password" placeholder="c… or 9… testnet3 WIF" autocomplete="off"></div>
+      <div class="f-field"><label class="f-label">Encryption password (min ${WALLET_MIN_PASS} chars)</label><input class="f-input" id="wPass" type="password" autocomplete="new-password"></div>
+      <div class="btn-row" style="margin-bottom:16px;">
+        <button class="btn btn-out btn-sm" onclick="generateKey()">Generate address</button>
+        <button class="btn btn-acc btn-sm" onclick="importWallet()">Import + unlock</button>
+      </div>
+      <hr class="divider">
+      <div class="f-field"><label class="f-label">Unlock saved wallet</label><input class="f-input" id="wUnlockPass" type="password" autocomplete="current-password" placeholder="Unlock password"></div>
+      <button class="btn btn-acc btn-sm" onclick="unlockWallet()">Unlock</button>
+      <div class="f-status warn" style="margin-top:10px;">No stored wallet found — import or generate one first.</div>`;
+    }
   }
   html+=`<div id="walletMsg" class="f-status hidden" style="margin-top:10px;"></div>`;
   container.innerHTML=html;
@@ -2654,6 +2671,64 @@ async function validateProfileImage(){
     setChip($('peImgBadge'),'Valid','good');
     showStatus(st,'Image validated','good');
   }catch(e){setChip($('peImgBadge'),'Invalid','danger');showStatus(st,e.message||'Image validation failed','danger');}
+}
+function triggerProfileImageUpload(){
+  const inp=$('peImgFile');
+  if(inp) inp.click();
+}
+async function uploadProfileImageFile(){
+  const fileInp=$('peImgFile'),txtInp=$('peImg'),st=$('peStatus'),btn=$('peImgUploadBtn');
+  if(!fileInp?.files?.length){if(st)showStatus(st,'Choose a file to upload first','warn');return;}
+  const file=fileInp.files[0];
+  let fileName='';
+  try{
+    fileName=sanitizeUploadFileName(file?.name||'');
+    const type=norm(file?.type||'').toLowerCase();
+    if(!(type.startsWith('image/')||IMG_RE.test(fileName))) throw new Error('Profile image upload requires an image file');
+  }catch(e){
+    if(st)showStatus(st,e.message||'Invalid image file','danger');
+    if(fileInp) fileInp.value='';
+    return;
+  }
+  try{
+    if(btn) btn.disabled=true;
+    showStatus(st,`Uploading ${fileName} to p2fk.io…`,'info');
+    const fd=new FormData();
+    fd.append('file',file,fileName);
+    const r=await fetch(`${API_BASE}/ipfs`,{method:'POST',body:fd});
+    if(!r.ok) throw new Error(`Upload failed (${r.status})`);
+    const raw=await r.text();
+    let payload=raw;
+    try{payload=JSON.parse(raw);}catch{}
+    const cid=extractUploadCid(payload);
+    if(!CID_RE.test(cid)) throw new Error('Upload succeeded but no valid CID was returned');
+    const uploaded=await normalizeAttach(`IPFS:${cid}/${fileName}`,{imgOnly:true});
+    S.normalizedImg=uploaded.canonical;
+    if(txtInp) txtInp.value=uploaded.canonical;
+    const prev=$('peImgPreview'),img=$('peImgPreviewImg');
+    if(prev) prev.classList.remove('hidden');
+    if(img){
+      const cands=profileImgCandidates(uploaded.canonical);
+      img.src=cands[0]||uploaded.preview||uploaded.canonical;
+      img.dataset.cands=JSON.stringify([...cands.slice(1),FALLBACK_AVI]);
+      img.onerror=()=>window.pi_err(img);
+    }
+    setChip($('peImgBadge'),'Valid','good');
+    showStatus(st,'Uploaded and pinned for 1 hour. Preview may take time to appear—please wait before posting. Files over a few MB can take much longer.','warn');
+    const previewReady=await waitForIpfsIo(cid,fileName);
+    if(previewReady){
+      if(img){
+        const cands=profileImgCandidates(uploaded.canonical);
+        img.src=cands[0]||uploaded.preview||uploaded.canonical;
+      }
+      showStatus(st,`Preview ready on ipfs.io · Image set: ${uploaded.canonical.slice(0,80)}`,'good');
+    }
+  }catch(e){
+    if(st) showStatus(st,e.message||'Image upload failed','danger');
+  }finally{
+    if(btn) btn.disabled=false;
+    if(fileInp) fileInp.value='';
+  }
 }
 async function estimateProfileTx(){
   const st=$('peStatus'),cn=$('peCostNote');
@@ -3741,6 +3816,8 @@ window.forgetWallet=forgetWallet;
 window.addKvRow=addKvRow;
 window.checkProfileHandle=checkProfileHandle;
 window.validateProfileImage=validateProfileImage;
+window.triggerProfileImageUpload=triggerProfileImageUpload;
+window.uploadProfileImageFile=uploadProfileImageFile;
 window.onProfileImageInput=function(){
   const raw=norm($('peImg')?.value||'');
   if(!raw){
