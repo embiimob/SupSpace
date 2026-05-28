@@ -1564,7 +1564,10 @@ async function fetchHomeRootsPage(tab='recent',skip=0,qty=PAGE_SIZE){
   if(tab==='trending'&&safeSkip===0){
     const tcData=await fetchJ(`${API_BASE}/GetTrendingRootSearches?qty=4`,10000).catch(()=>[]);
     const rows=Array.isArray(tcData)?tcData:[];
-    const trends=rows.map(r=>norm(r?.searchString||r?.keyword||'')).filter(Boolean).slice(0,4);
+    const trends=rows
+      .map(r=>norm(r?.searchString||r?.keyword||'').replace(/^#/,'').trim())
+      .filter(Boolean)
+      .slice(0,4);
     if(trends.length){
       const trendProms=trends.map(t=>searchRoots(t,Math.max(16,Math.ceil(qty/2)),0));
       const allTrendRoots=await Promise.all(trendProms);
@@ -3111,16 +3114,16 @@ async function loadTrending(rootsFallback=[]){
     clr(tc);
     const seen=new Set();let rendered=0;
     for(const row of rows){
-      const term=norm(row?.searchString||row?.SearchString||row?.keyword||row?.Keyword||'');
-      const termNorm=term.toLowerCase().replace(/^#/,'');
+      const term=norm(row?.searchString||row?.SearchString||row?.keyword||row?.Keyword||'').replace(/^#/,'').trim();
+      const termNorm=term.toLowerCase();
       if(!term||seen.has(termNorm)) continue;
       if(['mp3','mp4'].includes(termNorm)) continue;
       seen.add(termNorm);
       const results=Number(row?.lastResultCount||row?.ResultCount||row?.resultCount||row?.results||0)||0;
       const searches=Number(row?.successfulSearchCount||row?.SearchCount||row?.searchCount||row?.count||0)||0;
       const el=document.createElement('div');el.className='trend-item';
-      el.onclick=()=>exploreTag(term);
-      el.innerHTML=`<div class="trend-cat">Trending · testnet3</div><div class="trend-kw">#${esc(term)}</div><div class="trend-n">${searches?searches+' searches':(results?results+' posts':'')}</div>`;
+      el.onclick=()=>exploreText(term);
+      el.innerHTML=`<div class="trend-cat">Trending · testnet3</div><div class="trend-kw">${esc(term)}</div><div class="trend-n">${searches?searches+' searches':(results?results+' posts':'')}</div>`;
       tc.appendChild(el);
       if(++rendered>=8) break;
     }
@@ -3136,9 +3139,10 @@ async function loadTrending(rootsFallback=[]){
   if(!tagCount.size){tc.innerHTML='<div class="trend-n">No trending topics yet</div>';return;}
   clr(tc);
   [...tagCount.entries()].sort((a,b)=>b[1]-a[1]).slice(0,8).forEach(([tag,n])=>{
+    const term=norm(tag).replace(/^#/,'');
     const el=document.createElement('div');el.className='trend-item';
-    el.onclick=()=>exploreTag(tag.slice(1));
-    el.innerHTML=`<div class="trend-cat">Trending · testnet3</div><div class="trend-kw">${esc(tag)}</div><div class="trend-n">${n} ${n===1?'post':'posts'}</div>`;
+    el.onclick=()=>exploreText(term);
+    el.innerHTML=`<div class="trend-cat">Trending · testnet3</div><div class="trend-kw">${esc(term)}</div><div class="trend-n">${n} ${n===1?'post':'posts'}</div>`;
     tc.appendChild(el);
   });
 }
@@ -3455,6 +3459,13 @@ window.exploreTag=function(tag){
   switchView('explore');
   const si=$('exploreSearchInput');if(si){si.value='#'+tag;}
   runExploreSearch('#'+tag);
+};
+window.exploreText=function(text){
+  const q=norm(text).replace(/^#/,'').trim();
+  if(!q) return;
+  switchView('explore');
+  const si=$('exploreSearchInput');if(si) si.value=q;
+  runExploreSearch(q);
 };
 window.openProfileInMainThread=function(urnOrAddr){
   const target=norm(urnOrAddr);
