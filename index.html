@@ -673,6 +673,7 @@ const S = {
   threadPreviewMsgCache: new Map(),
   threadPreviewReqCache: new Map(),
   kwCache: new Map(),
+  trendingRootSearchCache: {rows:[],maxQty:0,reqs:new Map()},
   followed: new Set(),
   blocked: new Set(),
   communityCache: {ts:0,posts:[]},
@@ -1419,6 +1420,33 @@ async function fetchJ(url,timeout=15000){
     return await r.json();
   }finally{clearTimeout(id);}
 }
+function clearTrendingRootSearchCache(){
+  S.trendingRootSearchCache={rows:[],maxQty:0,reqs:new Map()};
+}
+async function getTrendingRootSearches(qty){
+  const safeQty=Math.max(0,Number(qty)||0);
+  if(!safeQty) return [];
+  const cache=S.trendingRootSearchCache||(S.trendingRootSearchCache={rows:[],maxQty:0,reqs:new Map()});
+  if(cache.maxQty>=safeQty) return (cache.rows||[]).slice(0,safeQty);
+  const pending=[...cache.reqs.entries()].sort((a,b)=>b[0]-a[0]).find(([q])=>q>=safeQty)?.[1];
+  if(pending){
+    const rows=await pending.catch(()=>[]);
+    return (Array.isArray(rows)?rows:[]).slice(0,safeQty);
+  }
+  const req=fetchJ(`${API_BASE}/GetTrendingRootSearches?qty=${safeQty}`,10000)
+    .then(data=>{
+      const rows=Array.isArray(data)?data:[];
+      if(safeQty>=cache.maxQty){
+        cache.rows=rows;
+        cache.maxQty=safeQty;
+      }
+      return rows;
+    })
+    .finally(()=>cache.reqs.delete(safeQty));
+  cache.reqs.set(safeQty,req);
+  const rows=await req.catch(()=>[]);
+  return (Array.isArray(rows)?rows:[]).slice(0,safeQty);
+}
 async function getBalance(addr){
   const r=await fetch(`${MEMPOOL_API}/address/${encodeURIComponent(addr)}`);
   if(!r.ok) throw new Error(`Balance lookup failed ${r.status}`);
@@ -1601,8 +1629,7 @@ async function searchRoots(q,qty=12,skip=0){
 async function fetchHomeRootsPage(tab='recent',skip=0,qty=HOME_PAGE_SIZE){
   const safeSkip=Math.max(0,Number(skip)||0);
   if(tab==='trending'&&safeSkip===0){
-    const tcData=await fetchJ(`${API_BASE}/GetTrendingRootSearches?qty=4`,10000).catch(()=>[]);
-    const rows=Array.isArray(tcData)?tcData:[];
+    const rows=await getTrendingRootSearches(4).catch(()=>[]);
     const trends=rows
       .map(r=>norm(r?.searchString||r?.keyword||'').replace(/^#/,'').trim())
       .filter(Boolean)
@@ -3151,8 +3178,7 @@ async function loadHomeFeed(){
 async function loadTrending(rootsFallback=[]){
   const tc=$('trendingContent');if(!tc) return;
   try{
-    const data=await fetchJ(`${API_BASE}/GetTrendingRootSearches?qty=20`,10000);
-    const rows=Array.isArray(data)?data:[];
+    const rows=await getTrendingRootSearches(20);
     if(!rows.length) throw new Error('empty');
     clr(tc);
     const seen=new Set();let rendered=0;
@@ -3632,7 +3658,11 @@ window.closeModal=closeModal;
 document.querySelectorAll('.nav-item').forEach(btn=>{
   btn.addEventListener('click',()=>switchView(btn.dataset.view));
 });
-$('brandHomeBtn')?.addEventListener('click',()=>switchView('home'));
+$('brandHomeBtn')?.addEventListener('click',()=>{
+  clearTrendingRootSearchCache();
+  S.feedLoaded=false;
+  switchView('home');
+});
 $('brandDownloadBtn')?.addEventListener('click',()=>{
   try{
     const blob=new Blob([`<!DOCTYPE html>\n${document.documentElement.outerHTML}`],{type:'text/html;charset=utf-8'});
