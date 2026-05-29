@@ -1417,9 +1417,16 @@ window.pi_err=function(el){
 async function fetchJ(url,timeout=15000){
   const ac=new AbortController(),id=setTimeout(()=>ac.abort(),timeout);
   try{
-    const r=await fetch(url,{signal:ac.signal});
+    let r;
+    try{
+      r=await fetch(url,{signal:ac.signal,cache:'no-store'});
+    }catch(e){
+      if(e?.name==='AbortError') throw new Error(`API request timed out for ${url}`);
+      throw new Error(`API request failed (network/CORS) for ${url}`);
+    }
     if(!r.ok) throw new Error(`HTTP ${r.status} from ${url}`);
-    return await r.json();
+    try{return await r.json();}
+    catch{throw new Error(`Invalid JSON from ${url}`);}
   }finally{clearTimeout(id);}
 }
 function clearTrendingRootSearchCache(){
@@ -1623,12 +1630,12 @@ async function fetchSingleRoot(txid){
   return normalizeRoot(Array.isArray(r)?r[0]:r);
 }
 async function searchProfiles(q,qty=8,skip=0){
-  return fetchJ(`${API_BASE}/GetKnownProfilesBySearchString?searchString=${encodeURIComponent(q)}&qty=${qty}&skip=${Math.max(0,Number(skip)||0)}&mainnet=false`,20000).catch(()=>[]);
+  return fetchJ(`${API_BASE}/GetKnownProfilesBySearchString?searchString=${encodeURIComponent(q)}&qty=${qty}&skip=${Math.max(0,Number(skip)||0)}&mainnet=false`,20000);
 }
 async function searchRoots(q,qty=12,skip=0){
   const raw=norm(q).trim();
   const searchString=raw?((raw.includes('*'))?raw:`*${raw}*`):'*';
-  return fetchJ(`${API_BASE}/GetKnownRootsBySearchString?searchString=${encodeURIComponent(searchString)}&qty=${qty}&skip=${Math.max(0,Number(skip)||0)}&mainnet=false&showSystemFiles=false`,20000).catch(()=>[]);
+  return fetchJ(`${API_BASE}/GetKnownRootsBySearchString?searchString=${encodeURIComponent(searchString)}&qty=${qty}&skip=${Math.max(0,Number(skip)||0)}&mainnet=false&showSystemFiles=false`,20000);
 }
 async function fetchHomeRootsPage(tab='recent',skip=0,qty=HOME_PAGE_SIZE){
   const safeSkip=Math.max(0,Number(skip)||0);
@@ -3397,13 +3404,13 @@ async function loadCommunityFeed(){
   if(!followed.length){
     feed.innerHTML='<div class="feed-loading"><div class="spinner"></div>No friends followed yet — loading trending feed…</div>';
     try{
-      const roots=blockFilterRows((await searchRoots('',24).catch(()=>[])).map(r=>normalizeRoot(r?.Root||r?.root||r)).filter(Boolean));
+      const roots=blockFilterRows((await searchRoots('',24)).map(r=>normalizeRoot(r?.Root||r?.root||r)).filter(Boolean));
       const profileCache=await buildSenderProfileCache(roots,{});
       clr(feed);
       if(!roots.length) feed.innerHTML='<div class="feed-empty">No community posts yet.</div>';
       else roots.forEach(r=>feed.appendChild(buildTweetEl(r,{profileCache,profileNav:'main'})));
       loadTrending(roots);
-    }catch{feed.innerHTML='<div class="feed-empty">No community posts yet.</div>';}
+    }catch(e){feed.innerHTML=`<div class="feed-err">Could not load community feed: ${esc(e?.message||'API unavailable')}</div>`;}
     return;
   }
   const cached=blockFilterRows((S.communityCache?.posts||[]).map(asRoot).filter(Boolean)).sort((a,b)=>new Date(b.blockDate||0)-new Date(a.blockDate||0));
