@@ -96,7 +96,7 @@ Import the same WIF in any of these apps and your identity (address and profile)
 | `GET /root/<txid>/Root.json` | Fast cached root lookup for direct txid deep-links (`?q=<txid>`). |
 | `GET /GetRootByTransactionID/<txid>?mainnet=false` | Fetches a single post/thread root by transaction ID. |
 | `GET /GetKnownProfilesBySearchString?searchString=<q>&mainnet=false` | Searches for profiles by name/handle. |
-| `GET /GetKnownRootsBySearchString?searchString=<q>&mainnet=false&showSystemFiles=false` | Searches posts and content by keyword/hashtag. |
+| `GET /GetKnownRootsBySearchString?searchString=*<q>*&mainnet=false&showSystemFiles=false` | Searches posts/content by keyword/hashtag (`searchString=*` for broad cached feed queries). |
 | `GET /GetPublicAddressByKeyword/<keyword>?mainnet=false` | Resolves a keyword-channel address. |
 
 ### testnet3 chain API (wallet/tx side via mempool.space)
