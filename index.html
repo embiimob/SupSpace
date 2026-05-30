@@ -2257,8 +2257,8 @@ function buildProfilePageEl(profile, official, posts=[], ownProfile=false, extra
       <div class="profile-avi-wrap"><img class="profile-avi-lg" ${imgAttrs} alt="${esc(profile.displayName)}"></div>
       ${ownProfile?`<div class="profile-top-bar"><button class="btn-edit-profile" onclick="openModal('modalProfileEdit')">Edit profile</button></div>`:
         `<div class="profile-top-bar"><div class="profile-act-row">
-          <button class="btn btn-sm ${followed?'btn-out':'btn-acc'}" onclick="toggleFollowAddr('${esc(profile.addr)}')">${followed?'Unfollow':'Follow'}</button>
-          <button class="btn btn-sm ${blocked?'btn-out':'btn-dng'}" onclick="toggleBlockAddr('${esc(profile.addr)}')">${blocked?'Unblock':'Block'}</button>
+          <button class="btn btn-sm ${followed?'btn-out':'btn-acc'}" data-social-action="follow" data-addr="${esc(profile.addr)}" onclick="toggleFollowAddr('${esc(profile.addr)}')">${followed?'Followed':'Follow'}</button>
+          <button class="btn btn-sm ${blocked?'btn-out':'btn-dng'}" data-social-action="block" data-addr="${esc(profile.addr)}" onclick="toggleBlockAddr('${esc(profile.addr)}')">${blocked?'Blocked':'Block'}</button>
         </div></div>`}
     </div>
     <div class="profile-info">
@@ -3498,6 +3498,7 @@ window.toggleFollowAddr=function(addr){
   if(S.followed.has(addr)) S.followed.delete(addr);
   else{S.followed.add(addr);added=true;}
   saveSocialState();
+  syncProfileSocialButtons(addr);
   renderSidebarList();
   if(added){
     refreshCommunityCache({force:true}).then(()=>{if(S.view==='community') loadCommunityFeed();}).catch(()=>{});
@@ -3510,11 +3511,26 @@ window.toggleBlockAddr=function(addr){
   if(S.blocked.has(addr)) S.blocked.delete(addr);
   else{S.blocked.add(addr);S.followed.delete(addr);}
   saveSocialState();
+  syncProfileSocialButtons(addr);
   renderSidebarList();
   if(S.view==='community') loadCommunityFeed();
   if(S.view==='home'){S.feedLoaded=false;loadHomeFeed();}
   if(S.view==='myprofile') loadMyProfile();
 };
+
+function syncProfileSocialButtons(addr){
+  if(!isAddr(addr)) return;
+  const followed=S.followed.has(addr);
+  const blocked=S.blocked.has(addr);
+  document.querySelectorAll(`button[data-social-action][data-addr="${addr}"]`).forEach(btn=>{
+    const action=btn.dataset.socialAction;
+    const isFollow=action==='follow';
+    const active=isFollow?followed:blocked;
+    btn.classList.remove('btn-acc','btn-dng','btn-out');
+    btn.classList.add(active?'btn-out':(isFollow?'btn-acc':'btn-dng'));
+    btn.textContent=isFollow?(active?'Followed':'Follow'):(active?'Blocked':'Block');
+  });
+}
 
 /* ═══════════════════════════════════════════════════
    EXPLORE / SEARCH
