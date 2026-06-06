@@ -795,16 +795,33 @@ function setObserverState(name,msg='',isDone=false){
   ctx.sentinel.textContent=msg||'';
   if(isDone&&ctx.observer) ctx.observer.disconnect();
 }
-function makeInfiniteObserver(name,container,onNearBottom,{root=null,rootMargin='900px 0px 900px 0px'}={}){
+function isSentinelNearViewport(ctx,pad=120){
+  const sent=ctx?.sentinel;
+  if(!sent?.isConnected) return false;
+  try{
+    const sRect=sent.getBoundingClientRect();
+    const rootEl=ctx.observerRoot;
+    const p=Math.max(0,Number(pad)||0);
+    if(rootEl&&typeof rootEl.getBoundingClientRect==='function'){
+      const rRect=rootEl.getBoundingClientRect();
+      return sRect.top<=rRect.bottom+p&&sRect.bottom>=rRect.top-p;
+    }
+    return sRect.top<=window.innerHeight+p&&sRect.bottom>=-p;
+  }catch{
+    return false;
+  }
+}
+function makeInfiniteObserver(name,container,onNearBottom,{root=null,rootMargin='0px 0px 900px 0px'}={}){
   clearObserver(name);
   const sentinel=document.createElement('div');
   sentinel.style.cssText='padding:12px 16px;color:var(--muted);font-size:.85rem;text-align:center;';
   container.appendChild(sentinel);
+  let ctx=null;
   const observer=new IntersectionObserver(entries=>{
-    if(entries.some(e=>e.isIntersecting)) onNearBottom();
+    if(entries.some(e=>e.isIntersecting)&&isSentinelNearViewport(ctx,120)) onNearBottom();
   },{root,rootMargin,threshold:0});
   observer.observe(sentinel);
-  const ctx={observer,sentinel,loading:false,done:false,cooldown:false,cooldownTimer:null,observerRoot:root||null};
+  ctx={observer,sentinel,loading:false,done:false,cooldown:false,cooldownTimer:null,observerRoot:root||null};
   S.observers[name]=ctx;
   return ctx;
 }
@@ -849,20 +866,7 @@ function startObserverCooldown(name,ctx,retryFn,seconds=10){
 }
 function queueObserverLoadIfNeeded(ctx,loadFn){
   if(!ctx||ctx.loading||ctx.done||ctx.cooldown||typeof loadFn!=='function') return;
-  const sent=ctx.sentinel;
-  if(!sent?.isConnected) return;
-  let near=false;
-  try{
-    const sRect=sent.getBoundingClientRect();
-    const rootEl=ctx.observerRoot;
-    if(rootEl&&typeof rootEl.getBoundingClientRect==='function'){
-      const rRect=rootEl.getBoundingClientRect();
-      near=sRect.top<=rRect.bottom+120;
-    }else{
-      near=sRect.top<=window.innerHeight+120;
-    }
-  }catch{}
-  if(near) setTimeout(()=>loadFn(),0);
+  if(isSentinelNearViewport(ctx,120)) setTimeout(()=>loadFn(),0);
 }
 function appUrl(){
   const u=new URL(window.location.href);
