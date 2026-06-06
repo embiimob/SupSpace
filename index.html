@@ -731,6 +731,7 @@ const S = {
   threadPreviewReqCache: new Map(),
   kwCache: new Map(),
   trendingRootSearchCache: {rows:[],maxQty:0,reqs:new Map()},
+  forYouCache: {rows:[],maxQty:0,ts:0,followedKey:'',reqs:new Map()},
   followed: new Set(),
   blocked: new Set(),
   communityCache: {ts:0,posts:[]},
@@ -1492,6 +1493,9 @@ async function fetchJ(url,timeout=15000){
 function clearTrendingRootSearchCache(){
   S.trendingRootSearchCache={rows:[],maxQty:0,reqs:new Map()};
 }
+function clearForYouCache(){
+  S.forYouCache={rows:[],maxQty:0,ts:0,followedKey:'',reqs:new Map()};
+}
 async function getTrendingRootSearches(qty){
   const safeQty=Math.max(0,Number(qty)||0);
   if(!safeQty) return [];
@@ -1700,25 +1704,72 @@ async function searchRoots(q,qty=12,skip=0){
 }
 async function fetchHomeRootsPage(tab='recent',skip=0,qty=HOME_PAGE_SIZE){
   const safeSkip=Math.max(0,Number(skip)||0);
-  if(tab==='trending'&&safeSkip===0){
-    const rows=await getTrendingRootSearches(4).catch(()=>[]);
-    const trends=rows
-      .map(r=>norm(r?.searchString||r?.keyword||'').replace(/^#/,'').trim())
-      .filter(Boolean)
-      .slice(0,4);
-    if(trends.length){
-      const trendProms=trends.map(t=>searchRoots(t,Math.max(16,Math.ceil(qty/2)),0));
-      const allTrendRoots=await Promise.all(trendProms);
-      const flat=allTrendRoots.flat();
-      const uniq=new Map();
-      flat.forEach(raw=>{
-        const root=normalizeRoot(raw?.Root||raw?.root||raw);
-        if(root?.txId&&!uniq.has(root.txId)) uniq.set(root.txId,root);
-      });
-      return [...uniq.values()]
-        .sort((a,b)=>new Date(b?.blockDate||0)-new Date(a?.blockDate||0))
-        .slice(0,qty);
+  if(tab==='trending'){
+    const forYouQty=safeSkip+Math.max(1,Number(qty)||HOME_PAGE_SIZE);
+    const key=[...S.followed].filter(a=>!isBlockedAddr(a)).sort().join('|');
+    const cache=S.forYouCache||(S.forYouCache={rows:[],maxQty:0,ts:0,followedKey:'',reqs:new Map()});
+    if(norm(cache.followedKey)!==key){
+      cache.rows=[];
+      cache.maxQty=0;
+      cache.ts=0;
+      cache.reqs=new Map();
+      cache.followedKey=key;
     }
+    const freshMs=2*60*1000;
+    const cacheFresh=Date.now()-Number(cache.ts||0)<freshMs;
+    if(cacheFresh&&cache.maxQty>=forYouQty) return (cache.rows||[]).slice(safeSkip,safeSkip+qty);
+    const pending=[...cache.reqs.entries()].sort((a,b)=>b[0]-a[0]).find(([q])=>q>=forYouQty)?.[1];
+    if(pending){
+      const rows=await pending.catch(()=>[]);
+      return (Array.isArray(rows)?rows:[]).slice(safeSkip,safeSkip+qty);
+    }
+    const req=(async()=>{
+      const targetQty=Math.max(forYouQty,HOME_PAGE_SIZE*6);
+      const trendRows=await getTrendingRootSearches(8).catch(()=>[]);
+      const trends=[...new Set(
+        trendRows
+          .map(r=>norm(r?.searchString||r?.keyword||'').replace(/^#/,'').trim())
+          .filter(Boolean)
+      )].slice(0,8);
+      const trendQty=Math.max(12,Math.ceil(targetQty/Math.max(1,trends.length||1)));
+      const trendParts=await Promise.all(trends.map(t=>searchRoots(t,trendQty,0).catch(()=>[])));
+      const trendMap=new Map();
+      blockFilterRows(trendParts.flat().map(r=>normalizeRoot(r?.Root||r?.root||r)).filter(Boolean))
+        .sort((a,b)=>new Date(b?.blockDate||0)-new Date(a?.blockDate||0))
+        .forEach(r=>{if(r?.txId&&!trendMap.has(r.txId)) trendMap.set(r.txId,r);});
+      const trendList=[...trendMap.values()];
+      let communityList=[];
+      if(key){
+        const communityRows=await refreshCommunityCache({force:false}).catch(()=>[]);
+        const commMap=new Map();
+        blockFilterRows((communityRows||[]).map(asRoot).filter(Boolean))
+          .sort((a,b)=>new Date(b?.blockDate||0)-new Date(a?.blockDate||0))
+          .forEach(r=>{if(r?.txId&&!commMap.has(r.txId)) commMap.set(r.txId,r);});
+        communityList=[...commMap.values()];
+      }
+      const mixed=[],seen=new Set();
+      let ti=0,ci=0;
+      const pushRow=row=>{
+        if(!row?.txId||seen.has(row.txId)||mixed.length>=targetQty) return;
+        seen.add(row.txId);
+        mixed.push(row);
+      };
+      while(mixed.length<targetQty&&(ti<trendList.length||ci<communityList.length)){
+        for(let n=0;n<4&&ti<trendList.length&&mixed.length<targetQty;n++) pushRow(trendList[ti++]);
+        if(ci<communityList.length&&mixed.length<targetQty) pushRow(communityList[ci++]);
+        if(ti>=trendList.length&&ci<communityList.length&&trendList.length===0) pushRow(communityList[ci++]);
+      }
+      while(mixed.length<targetQty&&ti<trendList.length) pushRow(trendList[ti++]);
+      while(mixed.length<targetQty&&ci<communityList.length) pushRow(communityList[ci++]);
+      cache.rows=mixed;
+      cache.maxQty=mixed.length;
+      cache.ts=Date.now();
+      cache.followedKey=key;
+      return mixed;
+    })().finally(()=>cache.reqs.delete(forYouQty));
+    cache.reqs.set(forYouQty,req);
+    const rows=await req.catch(()=>[]);
+    return (Array.isArray(rows)?rows:[]).slice(safeSkip,safeSkip+qty);
   }
   return (await searchRoots('',qty,safeSkip)).map(r=>normalizeRoot(r?.Root||r?.root||r)).filter(Boolean);
 }
@@ -3498,6 +3549,7 @@ window.toggleFollowAddr=function(addr){
   let added=false;
   if(S.followed.has(addr)) S.followed.delete(addr);
   else{S.followed.add(addr);added=true;}
+  clearForYouCache();
   saveSocialState();
   syncProfileSocialButtons(addr);
   renderSidebarList();
@@ -3511,6 +3563,7 @@ window.toggleBlockAddr=function(addr){
   if(!isAddr(addr)||addr===S.addr) return;
   if(S.blocked.has(addr)) S.blocked.delete(addr);
   else{S.blocked.add(addr);S.followed.delete(addr);}
+  clearForYouCache();
   saveSocialState();
   syncProfileSocialButtons(addr);
   renderSidebarList();
@@ -3821,6 +3874,7 @@ document.querySelectorAll('.nav-item').forEach(btn=>{
 });
 $('brandHomeBtn')?.addEventListener('click',()=>{
   clearTrendingRootSearchCache();
+  clearForYouCache();
   S.feedLoaded=false;
   switchView('home');
 });
