@@ -3449,6 +3449,7 @@ async function loadHomeFeed(){
         }
       }finally{
         ctx.loading=false;
+        queueObserverLoadIfNeeded(ctx,()=>loadMore(ctx));
         if(scanNext&&!ctx.done&&token===S.runTokens.home) setTimeout(()=>loadMore(ctx),0);
       }
     };
