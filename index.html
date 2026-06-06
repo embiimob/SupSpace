@@ -3401,6 +3401,7 @@ async function loadHomeFeed(){
     });
     let gotAny=pendingRoots.length>0;
     let stalePageRuns=0;
+    let transientRetryRuns=0;
     const loadMore=async(ctx)=>{
       if(!ctx||ctx.loading||ctx.done||ctx.cooldown||token!==S.runTokens.home) return;
       ctx.loading=true;
@@ -3410,6 +3411,7 @@ async function loadHomeFeed(){
         let rows=await fetchHomeRootsPage(S.homeTab,skip,HOME_PAGE_SIZE);
         rows=blockFilterRows((rows||[]).map(asRoot).filter(Boolean));
         if(token!==S.runTokens.home) return;
+        transientRetryRuns=0;
         skip+=HOME_PAGE_SIZE;
         const fresh=rows.filter(r=>r?.txId&&!seen.has(r.txId));
         fresh.forEach(r=>seen.add(r.txId));
@@ -3436,7 +3438,8 @@ async function loadHomeFeed(){
           }else setObserverState('home','');
         }
       }catch(e){
-        if(shouldCooldownObserverError(e)&&startObserverCooldown('home',ctx,()=>loadMore(ctx),10)){
+        if(shouldCooldownObserverError(e)&&transientRetryRuns<2&&startObserverCooldown('home',ctx,()=>loadMore(ctx),10)){
+          transientRetryRuns+=1;
         }else{
           ctx.done=true;
           if(!gotAny){
@@ -3447,7 +3450,6 @@ async function loadHomeFeed(){
       }finally{
         ctx.loading=false;
         if(scanNext&&!ctx.done&&token===S.runTokens.home) setTimeout(()=>loadMore(ctx),0);
-        else queueObserverLoadIfNeeded(ctx,()=>loadMore(ctx));
       }
     };
     const ctx=makeInfiniteObserver('home',feed,()=>loadMore(ctx));
