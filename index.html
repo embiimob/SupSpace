@@ -783,6 +783,8 @@ const clr = el => { el.replaceChildren(); };
 function autoResize(ta) { ta.style.height='auto'; ta.style.height=ta.scrollHeight+'px'; }
 function clearObserver(name){
   const ctx=S.observers?.[name];
+  if(ctx?.cooldownTimer){ clearInterval(ctx.cooldownTimer); ctx.cooldownTimer=null; }
+  ctx&&(ctx.cooldown=false);
   if(ctx?.observer) ctx.observer.disconnect();
   if(ctx?.sentinel?.isConnected) ctx.sentinel.remove();
   if(S.observers) delete S.observers[name];
@@ -802,9 +804,65 @@ function makeInfiniteObserver(name,container,onNearBottom,{root=null,rootMargin=
     if(entries.some(e=>e.isIntersecting)) onNearBottom();
   },{root,rootMargin,threshold:0});
   observer.observe(sentinel);
-  const ctx={observer,sentinel,loading:false,done:false};
+  const ctx={observer,sentinel,loading:false,done:false,cooldown:false,cooldownTimer:null,observerRoot:root||null};
   S.observers[name]=ctx;
   return ctx;
+}
+function shouldCooldownObserverError(err){
+  const kind=norm(err?.kind).toLowerCase();
+  const status=Number(err?.status||0);
+  if(kind==='ratelimit'||kind==='timeout') return true;
+  if(kind==='http'&&[408,425,429,500,502,503,504].includes(status)) return true;
+  const msg=String(err?.message||'').toLowerCase();
+  return msg.includes('network')||msg.includes('cors')||msg.includes('failed to fetch');
+}
+function startObserverCooldown(name,ctx,retryFn,seconds=10){
+  if(!ctx?.sentinel?.isConnected) return false;
+  if(ctx.cooldownTimer){ clearInterval(ctx.cooldownTimer); ctx.cooldownTimer=null; }
+  ctx.cooldown=true;
+  let left=Math.max(1,Number(seconds)||10);
+  const btn=document.createElement('button');
+  btn.type='button';
+  btn.className='tiny-link-btn';
+  btn.disabled=true;
+  btn.style.cssText='padding:6px 10px;opacity:.95;cursor:not-allowed;';
+  btn.textContent=`Retry in ${left}s`;
+  ctx.sentinel.replaceChildren(btn);
+  const tick=()=>{
+    if(!ctx?.sentinel?.isConnected){
+      if(ctx.cooldownTimer){ clearInterval(ctx.cooldownTimer); ctx.cooldownTimer=null; }
+      ctx.cooldown=false;
+      return;
+    }
+    left-=1;
+    if(left<=0){
+      if(ctx.cooldownTimer){ clearInterval(ctx.cooldownTimer); ctx.cooldownTimer=null; }
+      ctx.cooldown=false;
+      setObserverState(name,'');
+      if(typeof retryFn==='function') setTimeout(()=>retryFn(),0);
+      return;
+    }
+    btn.textContent=`Retry in ${left}s`;
+  };
+  ctx.cooldownTimer=setInterval(tick,1000);
+  return true;
+}
+function queueObserverLoadIfNeeded(ctx,loadFn){
+  if(!ctx||ctx.loading||ctx.done||ctx.cooldown||typeof loadFn!=='function') return;
+  const sent=ctx.sentinel;
+  if(!sent?.isConnected) return;
+  let near=false;
+  try{
+    const sRect=sent.getBoundingClientRect();
+    const rootEl=ctx.observerRoot;
+    if(rootEl&&typeof rootEl.getBoundingClientRect==='function'){
+      const rRect=rootEl.getBoundingClientRect();
+      near=sRect.top<=rRect.bottom+120;
+    }else{
+      near=sRect.top<=window.innerHeight+120;
+    }
+  }catch{}
+  if(near) setTimeout(()=>loadFn(),0);
 }
 function appUrl(){
   const u=new URL(window.location.href);
@@ -2418,8 +2476,9 @@ async function renderProfileWithPagination(container, profile, official, ownProf
     } catch (e) {}
   }
   let skip=initialPosts.length;
+  let stalePageRuns=0;
   const loadMore=async(ctx)=>{
-    if(!ctx||ctx.loading||ctx.done||token!==S.runTokens.profile) return;
+    if(!ctx||ctx.loading||ctx.done||ctx.cooldown||token!==S.runTokens.profile) return;
     ctx.loading=true;
     setObserverState(observerName,'Loading more posts…');
     try{
@@ -2429,21 +2488,29 @@ async function renderProfileWithPagination(container, profile, official, ownProf
       const fresh=rows.filter(r=>r?.txId&&!seen.has(r.txId));
       fresh.forEach(r=>seen.add(r.txId));
       if(fresh.length){
+        stalePageRuns=0;
         const extra=await buildSenderProfileCache(fresh,postCache);
         Object.assign(postCache,extra||{});
         const empty=feedWrap.querySelector('.feed-empty');
         if(empty) empty.remove();
         fresh.forEach(r=>feedWrap.appendChild(buildTweetEl(r,{profileCache:postCache,profileNav:'main'})));
+      }else if(rows.length>=PAGE_SIZE){
+        stalePageRuns+=1;
       }
-      if(rows.length<PAGE_SIZE||!fresh.length){
+      if(rows.length<PAGE_SIZE||stalePageRuns>=8){
         ctx.done=true;
         setObserverState(observerName,'End of profile posts',true);
+      }else if(!fresh.length&&rows.length>=PAGE_SIZE){
+        setObserverState(observerName,'Scanning for more posts…');
       }else setObserverState(observerName,'');
-    }catch{
-      ctx.done=true;
-      setObserverState(observerName,'Could not load more posts',true);
+    }catch(e){
+      if(!shouldCooldownObserverError(e)||!startObserverCooldown(observerName,ctx,()=>loadMore(ctx),10)){
+        ctx.done=true;
+        setObserverState(observerName,'Could not load more posts',true);
+      }
     }finally{
       ctx.loading=false;
+      queueObserverLoadIfNeeded(ctx,()=>loadMore(ctx));
     }
   };
   if(initialPosts.length<PAGE_SIZE) return;
@@ -3335,7 +3402,7 @@ async function loadHomeFeed(){
     let gotAny=pendingRoots.length>0;
     let stalePageRuns=0;
     const loadMore=async(ctx)=>{
-      if(!ctx||ctx.loading||ctx.done||token!==S.runTokens.home) return;
+      if(!ctx||ctx.loading||ctx.done||ctx.cooldown||token!==S.runTokens.home) return;
       ctx.loading=true;
       let scanNext=false;
       setObserverState('home','Loading more posts…');
@@ -3369,14 +3436,18 @@ async function loadHomeFeed(){
           }else setObserverState('home','');
         }
       }catch(e){
-        ctx.done=true;
-        if(!gotAny){
-          clr(feed);
-          feed.innerHTML=`<div class="feed-err">${funnyErrMsg(e)}</div>`;
-        }else setObserverState('home','Could not load more posts',true);
+        if(shouldCooldownObserverError(e)&&startObserverCooldown('home',ctx,()=>loadMore(ctx),10)){
+        }else{
+          ctx.done=true;
+          if(!gotAny){
+            clr(feed);
+            feed.innerHTML=`<div class="feed-err">${funnyErrMsg(e)}</div>`;
+          }else setObserverState('home','Could not load more posts',true);
+        }
       }finally{
         ctx.loading=false;
         if(scanNext&&!ctx.done&&token===S.runTokens.home) setTimeout(()=>loadMore(ctx),0);
+        else queueObserverLoadIfNeeded(ctx,()=>loadMore(ctx));
       }
     };
     const ctx=makeInfiniteObserver('home',feed,()=>loadMore(ctx));
@@ -3664,8 +3735,9 @@ async function runExploreSearch(query,{syncUrl=true}={}){
       const msgCache={};
       const seen=new Set();
       let skip=0,loaded=0;
+      let stalePageRuns=0;
       const loadMore=async(ctx)=>{
-        if(!ctx||ctx.loading||ctx.done||token!==S.runTokens.explore) return;
+        if(!ctx||ctx.loading||ctx.done||ctx.cooldown||token!==S.runTokens.explore) return;
         ctx.loading=true;
         setObserverState('explore','Loading more posts…');
         try{
@@ -3676,19 +3748,29 @@ async function runExploreSearch(query,{syncUrl=true}={}){
           fresh.forEach(r=>seen.add(r.txId));
           if(fresh.length){
             loaded+=fresh.length;
+            stalePageRuns=0;
             const pc=await buildSenderProfileCache(fresh,msgCache);
             Object.assign(msgCache,pc||{});
             fresh.forEach(r=>list.appendChild(buildTweetEl(r,{profileCache:msgCache,profileNav:'main'})));
+          }else if(rows.length>=SEARCH_PAGE_SIZE){
+            stalePageRuns+=1;
           }
           if(!loaded&&rows.length===0) list.innerHTML='<div class="feed-empty">No posts for this tag yet.</div>';
-          if(rows.length<SEARCH_PAGE_SIZE||!fresh.length){
+          if(rows.length<SEARCH_PAGE_SIZE||stalePageRuns>=8){
             ctx.done=true;
             setObserverState('explore',loaded?'End of results':'',true);
+          }else if(!fresh.length&&rows.length>=SEARCH_PAGE_SIZE){
+            setObserverState('explore','Scanning for more posts…');
           }else setObserverState('explore','');
-        }catch{
-          ctx.done=true;
-          setObserverState('explore','Could not load more results',true);
-        }finally{ctx.loading=false;}
+        }catch(e){
+          if(!shouldCooldownObserverError(e)||!startObserverCooldown('explore',ctx,()=>loadMore(ctx),10)){
+            ctx.done=true;
+            setObserverState('explore','Could not load more results',true);
+          }
+        }finally{
+          ctx.loading=false;
+          queueObserverLoadIfNeeded(ctx,()=>loadMore(ctx));
+        }
       };
       const ctx=makeInfiniteObserver('explore',res,()=>loadMore(ctx));
       await loadMore(ctx);
@@ -3723,8 +3805,9 @@ async function runExploreSearch(query,{syncUrl=true}={}){
     res.appendChild(list);
     const rootCache={},seen=new Set();
     let skip=0,total=0;
+    let stalePageRuns=0;
     const loadMore=async(ctx)=>{
-      if(!ctx||ctx.loading||ctx.done||token!==S.runTokens.explore) return;
+      if(!ctx||ctx.loading||ctx.done||ctx.cooldown||token!==S.runTokens.explore) return;
       ctx.loading=true;
       setObserverState('explore','Loading more posts…');
       try{
@@ -3736,19 +3819,29 @@ async function runExploreSearch(query,{syncUrl=true}={}){
         fresh.forEach(r=>seen.add(r.txId));
         if(fresh.length){
           total+=fresh.length;
+          stalePageRuns=0;
           const pc=await buildSenderProfileCache(fresh,rootCache);
           Object.assign(rootCache,pc||{});
           fresh.forEach(r=>list.appendChild(buildTweetEl(r,{profileCache:rootCache,profileNav:'main'})));
+        }else if(roots.length>=SEARCH_PAGE_SIZE){
+          stalePageRuns+=1;
         }
         if(!total&&roots.length===0&&!people.length) list.innerHTML='<div class="feed-empty">No results found.</div>';
-        if(roots.length<SEARCH_PAGE_SIZE||!fresh.length){
+        if(roots.length<SEARCH_PAGE_SIZE||stalePageRuns>=8){
           ctx.done=true;
           setObserverState('explore',total?'End of results':'',true);
+        }else if(!fresh.length&&roots.length>=SEARCH_PAGE_SIZE){
+          setObserverState('explore','Scanning for more posts…');
         }else setObserverState('explore','');
-      }catch{
-        ctx.done=true;
-        setObserverState('explore','Could not load more results',true);
-      }finally{ctx.loading=false;}
+      }catch(e){
+        if(!shouldCooldownObserverError(e)||!startObserverCooldown('explore',ctx,()=>loadMore(ctx),10)){
+          ctx.done=true;
+          setObserverState('explore','Could not load more results',true);
+        }
+      }finally{
+        ctx.loading=false;
+        queueObserverLoadIfNeeded(ctx,()=>loadMore(ctx));
+      }
     };
     const ctx=makeInfiniteObserver('explore',res,()=>loadMore(ctx));
     await loadMore(ctx);
@@ -3809,11 +3902,12 @@ async function openPostDetail(txid){
     const threadAddr=await kwAddr(rootTx);
     if(token!==S.runTokens.thread) return;
     let skip=0,replyCount=0;
+    let stalePageRuns=0;
     const redrawHdr=()=>{
       hdr.innerHTML=`<span>${plural(replyCount,'reply')}</span><span style="color:var(--muted);font-size:.82rem;">💬 ${metrics.comments} · 🔁 ${metrics.retweets} · ❤️ ${metrics.likes}</span>`;
     };
     const loadMore=async(ctx)=>{
-      if(!ctx||ctx.loading||ctx.done||token!==S.runTokens.thread) return;
+      if(!ctx||ctx.loading||ctx.done||ctx.cooldown||token!==S.runTokens.thread) return;
       ctx.loading=true;
       setObserverState('thread','Loading more replies…');
       try{
@@ -3823,6 +3917,7 @@ async function openPostDetail(txid){
         const fresh=blockFilterRows(replies.filter(r=>r?.txId&&!seen.has(r.txId)&&r.txId!==rootTx));
         fresh.forEach(r=>seen.add(r.txId));
         if(fresh.length){
+          stalePageRuns=0;
           const pc=await buildSenderProfileCache(fresh,profileCache);
           Object.assign(profileCache,pc||{});
           fresh.forEach(r=>{
@@ -3836,18 +3931,27 @@ async function openPostDetail(txid){
             }
           });
           redrawHdr();
+        }else if(replies.length>=PAGE_SIZE){
+          stalePageRuns+=1;
         }else if(replyCount===0){
           threadWrap.innerHTML='<div class="feed-empty">No replies yet.</div>';
         }
-        if(replies.length<PAGE_SIZE||!fresh.length){
+        if(replies.length<PAGE_SIZE||stalePageRuns>=8){
           ctx.done=true;
           setObserverState('thread',replyCount?'End of thread':'',true);
+        }else if(!fresh.length&&replies.length>=PAGE_SIZE){
+          setObserverState('thread','Scanning for more replies…');
         }else setObserverState('thread','');
-      }catch{
-        ctx.done=true;
-        if(replyCount===0) threadWrap.innerHTML='<div class="feed-empty">No replies yet.</div>';
-        setObserverState('thread','Could not load more replies',true);
-      }finally{ctx.loading=false;}
+      }catch(e){
+        if(!shouldCooldownObserverError(e)||!startObserverCooldown('thread',ctx,()=>loadMore(ctx),10)){
+          ctx.done=true;
+          if(replyCount===0) threadWrap.innerHTML='<div class="feed-empty">No replies yet.</div>';
+          setObserverState('thread','Could not load more replies',true);
+        }
+      }finally{
+        ctx.loading=false;
+        queueObserverLoadIfNeeded(ctx,()=>loadMore(ctx));
+      }
     };
     const ctx=makeInfiniteObserver('thread',body,()=>loadMore(ctx),{root:body.closest('.modal')||null,rootMargin:'500px 0px 500px 0px'});
     await loadMore(ctx);
