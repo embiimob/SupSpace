@@ -811,17 +811,26 @@ function isSentinelNearViewport(ctx,pad=120){
     return false;
   }
 }
-function makeInfiniteObserver(name,container,onNearBottom,{root=null,rootMargin='0px 0px 900px 0px'}={}){
+function getRootMarginBottomPad(rootMargin){
+  const parts=String(rootMargin||'').trim().split(/\s+/).filter(Boolean);
+  if(!parts.length) return 120;
+  const raw=(parts[2]??parts[0]??'120px');
+  const n=parseFloat(raw);
+  return Number.isFinite(n)?Math.max(0,n):120;
+}
+function makeInfiniteObserver(name,container,onNearBottom,{root=null,rootMargin='0px 0px 120px 0px'}={}){
   clearObserver(name);
   const sentinel=document.createElement('div');
   sentinel.style.cssText='padding:12px 16px;color:var(--muted);font-size:.85rem;text-align:center;';
   container.appendChild(sentinel);
   let ctx=null;
+  const nearPad=getRootMarginBottomPad(rootMargin);
   const observer=new IntersectionObserver(entries=>{
-    if(entries.some(e=>e.isIntersecting)&&isSentinelNearViewport(ctx,120)) onNearBottom();
+    if(!ctx||ctx.loading||ctx.done||ctx.cooldown) return;
+    if(entries.some(e=>e.isIntersecting)&&isSentinelNearViewport(ctx,nearPad)) onNearBottom();
   },{root,rootMargin,threshold:0});
   observer.observe(sentinel);
-  ctx={observer,sentinel,loading:false,done:false,cooldown:false,cooldownTimer:null,observerRoot:root||null};
+  ctx={observer,sentinel,loading:false,done:false,cooldown:false,cooldownTimer:null,observerRoot:root||null,nearPad};
   S.observers[name]=ctx;
   return ctx;
 }
@@ -872,7 +881,7 @@ function startObserverCooldown(name,ctx,retryFn,seconds=10){
 }
 function queueObserverLoadIfNeeded(ctx,loadFn){
   if(!ctx||ctx.loading||ctx.done||ctx.cooldown||typeof loadFn!=='function') return;
-  if(isSentinelNearViewport(ctx,120)) setTimeout(()=>loadFn(),0);
+  if(isSentinelNearViewport(ctx,ctx.nearPad??120)) setTimeout(()=>loadFn(),0);
 }
 function appUrl(){
   const u=new URL(window.location.href);
