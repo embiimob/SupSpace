@@ -1729,7 +1729,7 @@ async function fetchHomeRootsPage(tab='recent',skip=0,qty=HOME_PAGE_SIZE){
       const trends=[...new Set(
         trendRows
           .map(r=>norm(r?.searchString||r?.keyword||'').replace(/^#/,'').trim())
-          .filter(Boolean)
+          .filter(t=>t&&!['mp3','mp4'].includes(t.toLowerCase()))
       )].slice(0,8);
       const trendQty=Math.max(12,Math.ceil(targetQty/Math.max(1,trends.length||1)));
       const trendParts=await Promise.all(trends.map(t=>searchRoots(t,trendQty,0).catch(()=>[])));
