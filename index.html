@@ -3898,6 +3898,8 @@ async function openPostDetail(txid){
     hdr.innerHTML='<span>0 replies</span><span style="color:var(--muted);font-size:.82rem;">💬 0 · 🔁 0 · ❤️ 0</span>';
     body.appendChild(hdr);
     const threadWrap=document.createElement('div');
+    const threadList=document.createElement('div');
+    threadWrap.appendChild(threadList);
     body.appendChild(threadWrap);
     const metrics={comments:0,retweets:0,likes:0};
     const seen=new Set([rootTx]);
@@ -3929,14 +3931,14 @@ async function openPostDetail(txid){
             if(a.like) metrics.likes+=1;
             if(a.comment||a.retweet){
               replyCount+=1;
-              threadWrap.appendChild(buildTweetEl(r,{profileCache,profileNav:'main',withEngagement:false}));
+              threadList.appendChild(buildTweetEl(r,{profileCache,profileNav:'main',withEngagement:false}));
             }
           });
           redrawHdr();
         }else if(replies.length>=PAGE_SIZE){
           stalePageRuns+=1;
         }else if(replyCount===0){
-          threadWrap.innerHTML='<div class="feed-empty">No replies yet.</div>';
+          threadList.innerHTML='<div class="feed-empty">No replies yet.</div>';
         }
         if(replies.length<PAGE_SIZE||stalePageRuns>=8){
           ctx.done=true;
@@ -3947,7 +3949,7 @@ async function openPostDetail(txid){
       }catch(e){
         if(!shouldCooldownObserverError(e)||!startObserverCooldown('thread',ctx,()=>loadMore(ctx),10)){
           ctx.done=true;
-          if(replyCount===0) threadWrap.innerHTML='<div class="feed-empty">No replies yet.</div>';
+          if(replyCount===0) threadList.innerHTML='<div class="feed-empty">No replies yet.</div>';
           setObserverState('thread','Could not load more replies',true);
         }
       }finally{
@@ -3955,7 +3957,7 @@ async function openPostDetail(txid){
         queueObserverLoadIfNeeded(ctx,()=>loadMore(ctx));
       }
     };
-    const ctx=makeInfiniteObserver('thread',body,()=>loadMore(ctx),{root:body.closest('.modal')||null,rootMargin:'500px 0px 500px 0px'});
+    const ctx=makeInfiniteObserver('thread',threadWrap,()=>loadMore(ctx),{root:body.closest('.modal')||null,rootMargin:'500px 0px 500px 0px'});
     await loadMore(ctx);
   }catch(e){body.innerHTML=`<div class="feed-err">${funnyErrMsg(e)}</div>`;}
 }
