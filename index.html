@@ -1598,7 +1598,7 @@ async function fetchProfileByAddr(addr){
     let p=normalizeProfile(Array.isArray(r)?r[0]:r,addr);
     if(p?.urn){
       try{
-        const byUrn=await fetchProfileByURN(p.urn,true);
+        const byUrn=await fetchProfileByURN(p.urn);
         if(byUrn?.image&&!p.image) p={...p,image:byUrn.image};
         const addrCreator=norm(p?.creators?.[0]||'');
         const urnCreator=norm(byUrn?.creators?.[0]||'');
@@ -3290,6 +3290,11 @@ async function loadMyProfile(){
 }
 
 window.setHomeTab = function(tab) {
+  const reselect=S.homeTab===tab;
+  if(reselect&&tab==='trending'){
+    clearForYouCache();
+    clearTrendingRootSearchCache();
+  }
   S.homeTab = tab;
   document.getElementById('homeTabTrending').classList.toggle('active', tab === 'trending');
   document.getElementById('homeTabRecent').classList.toggle('active', tab === 'recent');
@@ -3328,9 +3333,11 @@ async function loadHomeFeed(){
       feed.appendChild(buildTweetEl(root,{profileCache}));
     });
     let gotAny=pendingRoots.length>0;
+    let stalePageRuns=0;
     const loadMore=async(ctx)=>{
       if(!ctx||ctx.loading||ctx.done||token!==S.runTokens.home) return;
       ctx.loading=true;
+      let scanNext=false;
       setObserverState('home','Loading more posts…');
       try{
         let rows=await fetchHomeRootsPage(S.homeTab,skip,HOME_PAGE_SIZE);
@@ -3341,18 +3348,26 @@ async function loadHomeFeed(){
         fresh.forEach(r=>seen.add(r.txId));
         if(fresh.length){
           gotAny=true;
+          stalePageRuns=0;
           const pc=await buildSenderProfileCache(fresh,profileCache);
           Object.assign(profileCache,pc||{});
           fresh.forEach(root=>feed.appendChild(buildTweetEl(root,{profileCache})));
+        }else if(rows.length>=HOME_PAGE_SIZE){
+          stalePageRuns+=1;
         }
-        if(rows.length<HOME_PAGE_SIZE||!fresh.length){
+        if(rows.length<HOME_PAGE_SIZE||stalePageRuns>=8){
           ctx.done=true;
           setObserverState('home',gotAny?'End of results':'No posts found. Be the first to post!',true);
           if(!gotAny){
             clr(feed);
             feed.innerHTML='<div class="feed-empty">No posts found. Be the first to post!</div>';
           }
-        }else setObserverState('home','');
+        }else{
+          if(!fresh.length&&rows.length>=HOME_PAGE_SIZE){
+            setObserverState('home','Scanning for more posts…');
+            scanNext=true;
+          }else setObserverState('home','');
+        }
       }catch(e){
         ctx.done=true;
         if(!gotAny){
@@ -3361,6 +3376,7 @@ async function loadHomeFeed(){
         }else setObserverState('home','Could not load more posts',true);
       }finally{
         ctx.loading=false;
+        if(scanNext&&!ctx.done&&token===S.runTokens.home) setTimeout(()=>loadMore(ctx),0);
       }
     };
     const ctx=makeInfiniteObserver('home',feed,()=>loadMore(ctx));
