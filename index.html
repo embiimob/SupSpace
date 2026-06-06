@@ -3409,7 +3409,6 @@ async function loadHomeFeed(){
     const loadMore=async(ctx)=>{
       if(!ctx||ctx.loading||ctx.done||ctx.cooldown||token!==S.runTokens.home) return;
       ctx.loading=true;
-      let scanNext=false;
       setObserverState('home','Loading more posts…');
       try{
         let rows=await fetchHomeRootsPage(S.homeTab,skip,HOME_PAGE_SIZE);
@@ -3438,7 +3437,6 @@ async function loadHomeFeed(){
         }else{
           if(!fresh.length&&rows.length>=HOME_PAGE_SIZE){
             setObserverState('home','Scanning for more posts…');
-            scanNext=true;
           }else setObserverState('home','');
         }
       }catch(e){
@@ -3454,7 +3452,6 @@ async function loadHomeFeed(){
       }finally{
         ctx.loading=false;
         queueObserverLoadIfNeeded(ctx,()=>loadMore(ctx));
-        if(scanNext&&!ctx.done&&token===S.runTokens.home) setTimeout(()=>loadMore(ctx),0);
       }
     };
     const ctx=makeInfiniteObserver('home',feed,()=>loadMore(ctx));
