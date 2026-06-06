@@ -783,6 +783,8 @@ const clr = el => { el.replaceChildren(); };
 function autoResize(ta) { ta.style.height='auto'; ta.style.height=ta.scrollHeight+'px'; }
 function clearObserver(name){
   const ctx=S.observers?.[name];
+  if(ctx?.cooldownTimer){ clearInterval(ctx.cooldownTimer); ctx.cooldownTimer=null; }
+  ctx&&(ctx.cooldown=false);
   if(ctx?.observer) ctx.observer.disconnect();
   if(ctx?.sentinel?.isConnected) ctx.sentinel.remove();
   if(S.observers) delete S.observers[name];
@@ -793,18 +795,93 @@ function setObserverState(name,msg='',isDone=false){
   ctx.sentinel.textContent=msg||'';
   if(isDone&&ctx.observer) ctx.observer.disconnect();
 }
-function makeInfiniteObserver(name,container,onNearBottom,{root=null,rootMargin='900px 0px 900px 0px'}={}){
+function isSentinelNearViewport(ctx,pad=120){
+  const sent=ctx?.sentinel;
+  if(!sent?.isConnected) return false;
+  try{
+    const sRect=sent.getBoundingClientRect();
+    const rootEl=ctx.observerRoot;
+    const p=Math.max(0,Number(pad)||0);
+    if(rootEl&&typeof rootEl.getBoundingClientRect==='function'){
+      const rRect=rootEl.getBoundingClientRect();
+      return sRect.top<=rRect.bottom+p&&sRect.bottom>=rRect.top-p;
+    }
+    return sRect.top<=window.innerHeight+p&&sRect.bottom>=-p;
+  }catch{
+    return false;
+  }
+}
+function getRootMarginBottomPad(rootMargin){
+  const parts=String(rootMargin||'').trim().split(/\s+/).filter(Boolean);
+  if(!parts.length) return 120;
+  const raw=(parts[2]??parts[0]??'120px');
+  const n=parseFloat(raw);
+  return Number.isFinite(n)?Math.max(0,n):120;
+}
+function makeInfiniteObserver(name,container,onNearBottom,{root=null,rootMargin='0px 0px 120px 0px'}={}){
   clearObserver(name);
   const sentinel=document.createElement('div');
   sentinel.style.cssText='padding:12px 16px;color:var(--muted);font-size:.85rem;text-align:center;';
   container.appendChild(sentinel);
+  let ctx=null;
+  const nearPad=getRootMarginBottomPad(rootMargin);
   const observer=new IntersectionObserver(entries=>{
-    if(entries.some(e=>e.isIntersecting)) onNearBottom();
+    if(!ctx||ctx.loading||ctx.done||ctx.cooldown) return;
+    if(entries.some(e=>e.isIntersecting)&&isSentinelNearViewport(ctx,nearPad)) onNearBottom();
   },{root,rootMargin,threshold:0});
   observer.observe(sentinel);
-  const ctx={observer,sentinel,loading:false,done:false};
+  ctx={observer,sentinel,loading:false,done:false,cooldown:false,cooldownTimer:null,observerRoot:root||null,nearPad};
   S.observers[name]=ctx;
   return ctx;
+}
+function appendBeforeObserverSentinel(container,node,ctx){
+  if(!container||!node) return;
+  const sent=ctx?.sentinel;
+  if(sent&&sent.parentNode===container) container.insertBefore(node,sent);
+  else container.appendChild(node);
+}
+function shouldCooldownObserverError(err){
+  const kind=norm(err?.kind).toLowerCase();
+  const status=Number(err?.status||0);
+  if(kind==='ratelimit'||kind==='timeout') return true;
+  if(kind==='http'&&[408,425,429,500,502,503,504].includes(status)) return true;
+  const msg=String(err?.message||'').toLowerCase();
+  return msg.includes('network')||msg.includes('cors')||msg.includes('failed to fetch');
+}
+function startObserverCooldown(name,ctx,retryFn,seconds=10){
+  if(!ctx?.sentinel?.isConnected) return false;
+  if(ctx.cooldownTimer){ clearInterval(ctx.cooldownTimer); ctx.cooldownTimer=null; }
+  ctx.cooldown=true;
+  let left=Math.max(1,Number(seconds)||10);
+  const btn=document.createElement('button');
+  btn.type='button';
+  btn.className='tiny-link-btn';
+  btn.disabled=true;
+  btn.style.cssText='padding:6px 10px;opacity:.95;cursor:not-allowed;';
+  btn.textContent=`Retry in ${left}s`;
+  ctx.sentinel.replaceChildren(btn);
+  const tick=()=>{
+    if(!ctx?.sentinel?.isConnected){
+      if(ctx.cooldownTimer){ clearInterval(ctx.cooldownTimer); ctx.cooldownTimer=null; }
+      ctx.cooldown=false;
+      return;
+    }
+    left-=1;
+    if(left<=0){
+      if(ctx.cooldownTimer){ clearInterval(ctx.cooldownTimer); ctx.cooldownTimer=null; }
+      ctx.cooldown=false;
+      setObserverState(name,'');
+      if(typeof retryFn==='function') setTimeout(()=>retryFn(),0);
+      return;
+    }
+    btn.textContent=`Retry in ${left}s`;
+  };
+  ctx.cooldownTimer=setInterval(tick,1000);
+  return true;
+}
+function queueObserverLoadIfNeeded(ctx,loadFn){
+  if(!ctx||ctx.loading||ctx.done||ctx.cooldown||typeof loadFn!=='function') return;
+  if(isSentinelNearViewport(ctx,ctx.nearPad??120)) setTimeout(()=>loadFn(),0);
 }
 function appUrl(){
   const u=new URL(window.location.href);
@@ -1598,7 +1675,7 @@ async function fetchProfileByAddr(addr){
     let p=normalizeProfile(Array.isArray(r)?r[0]:r,addr);
     if(p?.urn){
       try{
-        const byUrn=await fetchProfileByURN(p.urn,true);
+        const byUrn=await fetchProfileByURN(p.urn);
         if(byUrn?.image&&!p.image) p={...p,image:byUrn.image};
         const addrCreator=norm(p?.creators?.[0]||'');
         const urnCreator=norm(byUrn?.creators?.[0]||'');
@@ -1729,7 +1806,7 @@ async function fetchHomeRootsPage(tab='recent',skip=0,qty=HOME_PAGE_SIZE){
       const trends=[...new Set(
         trendRows
           .map(r=>norm(r?.searchString||r?.keyword||'').replace(/^#/,'').trim())
-          .filter(Boolean)
+          .filter(t=>t&&!['mp3','mp4'].includes(t.toLowerCase()))
       )].slice(0,8);
       const trendQty=Math.max(12,Math.ceil(targetQty/Math.max(1,trends.length||1)));
       const trendParts=await Promise.all(trends.map(t=>searchRoots(t,trendQty,0).catch(()=>[])));
@@ -2418,8 +2495,9 @@ async function renderProfileWithPagination(container, profile, official, ownProf
     } catch (e) {}
   }
   let skip=initialPosts.length;
+  let stalePageRuns=0;
   const loadMore=async(ctx)=>{
-    if(!ctx||ctx.loading||ctx.done||token!==S.runTokens.profile) return;
+    if(!ctx||ctx.loading||ctx.done||ctx.cooldown||token!==S.runTokens.profile) return;
     ctx.loading=true;
     setObserverState(observerName,'Loading more posts…');
     try{
@@ -2429,21 +2507,29 @@ async function renderProfileWithPagination(container, profile, official, ownProf
       const fresh=rows.filter(r=>r?.txId&&!seen.has(r.txId));
       fresh.forEach(r=>seen.add(r.txId));
       if(fresh.length){
+        stalePageRuns=0;
         const extra=await buildSenderProfileCache(fresh,postCache);
         Object.assign(postCache,extra||{});
         const empty=feedWrap.querySelector('.feed-empty');
         if(empty) empty.remove();
-        fresh.forEach(r=>feedWrap.appendChild(buildTweetEl(r,{profileCache:postCache,profileNav:'main'})));
+        fresh.forEach(r=>appendBeforeObserverSentinel(feedWrap,buildTweetEl(r,{profileCache:postCache,profileNav:'main'}),ctx));
+      }else if(rows.length>=PAGE_SIZE){
+        stalePageRuns+=1;
       }
-      if(rows.length<PAGE_SIZE||!fresh.length){
+      if(rows.length<PAGE_SIZE||stalePageRuns>=8){
         ctx.done=true;
         setObserverState(observerName,'End of profile posts',true);
+      }else if(!fresh.length&&rows.length>=PAGE_SIZE){
+        setObserverState(observerName,'Scanning for more posts…');
       }else setObserverState(observerName,'');
-    }catch{
-      ctx.done=true;
-      setObserverState(observerName,'Could not load more posts',true);
+    }catch(e){
+      if(!shouldCooldownObserverError(e)||!startObserverCooldown(observerName,ctx,()=>loadMore(ctx),10)){
+        ctx.done=true;
+        setObserverState(observerName,'Could not load more posts',true);
+      }
     }finally{
       ctx.loading=false;
+      queueObserverLoadIfNeeded(ctx,()=>loadMore(ctx));
     }
   };
   if(initialPosts.length<PAGE_SIZE) return;
@@ -3290,6 +3376,11 @@ async function loadMyProfile(){
 }
 
 window.setHomeTab = function(tab) {
+  const reselect=S.homeTab===tab;
+  if(reselect&&tab==='trending'){
+    clearForYouCache();
+    clearTrendingRootSearchCache();
+  }
   S.homeTab = tab;
   document.getElementById('homeTabTrending').classList.toggle('active', tab === 'trending');
   document.getElementById('homeTabRecent').classList.toggle('active', tab === 'recent');
@@ -3328,39 +3419,54 @@ async function loadHomeFeed(){
       feed.appendChild(buildTweetEl(root,{profileCache}));
     });
     let gotAny=pendingRoots.length>0;
+    let stalePageRuns=0;
+    let transientRetryRuns=0;
     const loadMore=async(ctx)=>{
-      if(!ctx||ctx.loading||ctx.done||token!==S.runTokens.home) return;
+      if(!ctx||ctx.loading||ctx.done||ctx.cooldown||token!==S.runTokens.home) return;
       ctx.loading=true;
       setObserverState('home','Loading more posts…');
       try{
         let rows=await fetchHomeRootsPage(S.homeTab,skip,HOME_PAGE_SIZE);
         rows=blockFilterRows((rows||[]).map(asRoot).filter(Boolean));
         if(token!==S.runTokens.home) return;
+        transientRetryRuns=0;
         skip+=HOME_PAGE_SIZE;
         const fresh=rows.filter(r=>r?.txId&&!seen.has(r.txId));
         fresh.forEach(r=>seen.add(r.txId));
         if(fresh.length){
           gotAny=true;
+          stalePageRuns=0;
           const pc=await buildSenderProfileCache(fresh,profileCache);
           Object.assign(profileCache,pc||{});
-          fresh.forEach(root=>feed.appendChild(buildTweetEl(root,{profileCache})));
+          fresh.forEach(root=>appendBeforeObserverSentinel(feed,buildTweetEl(root,{profileCache}),ctx));
+        }else if(rows.length>=HOME_PAGE_SIZE){
+          stalePageRuns+=1;
         }
-        if(rows.length<HOME_PAGE_SIZE||!fresh.length){
+        if(rows.length<HOME_PAGE_SIZE||stalePageRuns>=8){
           ctx.done=true;
           setObserverState('home',gotAny?'End of results':'No posts found. Be the first to post!',true);
           if(!gotAny){
             clr(feed);
             feed.innerHTML='<div class="feed-empty">No posts found. Be the first to post!</div>';
           }
-        }else setObserverState('home','');
+        }else{
+          if(!fresh.length&&rows.length>=HOME_PAGE_SIZE){
+            setObserverState('home','Scanning for more posts…');
+          }else setObserverState('home','');
+        }
       }catch(e){
-        ctx.done=true;
-        if(!gotAny){
-          clr(feed);
-          feed.innerHTML=`<div class="feed-err">${funnyErrMsg(e)}</div>`;
-        }else setObserverState('home','Could not load more posts',true);
+        if(shouldCooldownObserverError(e)&&transientRetryRuns<2&&startObserverCooldown('home',ctx,()=>loadMore(ctx),10)){
+          transientRetryRuns+=1;
+        }else{
+          ctx.done=true;
+          if(!gotAny){
+            clr(feed);
+            feed.innerHTML=`<div class="feed-err">${funnyErrMsg(e)}</div>`;
+          }else setObserverState('home','Could not load more posts',true);
+        }
       }finally{
         ctx.loading=false;
+        queueObserverLoadIfNeeded(ctx,()=>loadMore(ctx));
       }
     };
     const ctx=makeInfiniteObserver('home',feed,()=>loadMore(ctx));
@@ -3648,8 +3754,9 @@ async function runExploreSearch(query,{syncUrl=true}={}){
       const msgCache={};
       const seen=new Set();
       let skip=0,loaded=0;
+      let stalePageRuns=0;
       const loadMore=async(ctx)=>{
-        if(!ctx||ctx.loading||ctx.done||token!==S.runTokens.explore) return;
+        if(!ctx||ctx.loading||ctx.done||ctx.cooldown||token!==S.runTokens.explore) return;
         ctx.loading=true;
         setObserverState('explore','Loading more posts…');
         try{
@@ -3660,19 +3767,29 @@ async function runExploreSearch(query,{syncUrl=true}={}){
           fresh.forEach(r=>seen.add(r.txId));
           if(fresh.length){
             loaded+=fresh.length;
+            stalePageRuns=0;
             const pc=await buildSenderProfileCache(fresh,msgCache);
             Object.assign(msgCache,pc||{});
             fresh.forEach(r=>list.appendChild(buildTweetEl(r,{profileCache:msgCache,profileNav:'main'})));
+          }else if(rows.length>=SEARCH_PAGE_SIZE){
+            stalePageRuns+=1;
           }
           if(!loaded&&rows.length===0) list.innerHTML='<div class="feed-empty">No posts for this tag yet.</div>';
-          if(rows.length<SEARCH_PAGE_SIZE||!fresh.length){
+          if(rows.length<SEARCH_PAGE_SIZE||stalePageRuns>=8){
             ctx.done=true;
             setObserverState('explore',loaded?'End of results':'',true);
+          }else if(!fresh.length&&rows.length>=SEARCH_PAGE_SIZE){
+            setObserverState('explore','Scanning for more posts…');
           }else setObserverState('explore','');
-        }catch{
-          ctx.done=true;
-          setObserverState('explore','Could not load more results',true);
-        }finally{ctx.loading=false;}
+        }catch(e){
+          if(!shouldCooldownObserverError(e)||!startObserverCooldown('explore',ctx,()=>loadMore(ctx),10)){
+            ctx.done=true;
+            setObserverState('explore','Could not load more results',true);
+          }
+        }finally{
+          ctx.loading=false;
+          queueObserverLoadIfNeeded(ctx,()=>loadMore(ctx));
+        }
       };
       const ctx=makeInfiniteObserver('explore',res,()=>loadMore(ctx));
       await loadMore(ctx);
@@ -3707,8 +3824,9 @@ async function runExploreSearch(query,{syncUrl=true}={}){
     res.appendChild(list);
     const rootCache={},seen=new Set();
     let skip=0,total=0;
+    let stalePageRuns=0;
     const loadMore=async(ctx)=>{
-      if(!ctx||ctx.loading||ctx.done||token!==S.runTokens.explore) return;
+      if(!ctx||ctx.loading||ctx.done||ctx.cooldown||token!==S.runTokens.explore) return;
       ctx.loading=true;
       setObserverState('explore','Loading more posts…');
       try{
@@ -3720,19 +3838,29 @@ async function runExploreSearch(query,{syncUrl=true}={}){
         fresh.forEach(r=>seen.add(r.txId));
         if(fresh.length){
           total+=fresh.length;
+          stalePageRuns=0;
           const pc=await buildSenderProfileCache(fresh,rootCache);
           Object.assign(rootCache,pc||{});
           fresh.forEach(r=>list.appendChild(buildTweetEl(r,{profileCache:rootCache,profileNav:'main'})));
+        }else if(roots.length>=SEARCH_PAGE_SIZE){
+          stalePageRuns+=1;
         }
         if(!total&&roots.length===0&&!people.length) list.innerHTML='<div class="feed-empty">No results found.</div>';
-        if(roots.length<SEARCH_PAGE_SIZE||!fresh.length){
+        if(roots.length<SEARCH_PAGE_SIZE||stalePageRuns>=8){
           ctx.done=true;
           setObserverState('explore',total?'End of results':'',true);
+        }else if(!fresh.length&&roots.length>=SEARCH_PAGE_SIZE){
+          setObserverState('explore','Scanning for more posts…');
         }else setObserverState('explore','');
-      }catch{
-        ctx.done=true;
-        setObserverState('explore','Could not load more results',true);
-      }finally{ctx.loading=false;}
+      }catch(e){
+        if(!shouldCooldownObserverError(e)||!startObserverCooldown('explore',ctx,()=>loadMore(ctx),10)){
+          ctx.done=true;
+          setObserverState('explore','Could not load more results',true);
+        }
+      }finally{
+        ctx.loading=false;
+        queueObserverLoadIfNeeded(ctx,()=>loadMore(ctx));
+      }
     };
     const ctx=makeInfiniteObserver('explore',res,()=>loadMore(ctx));
     await loadMore(ctx);
@@ -3787,17 +3915,20 @@ async function openPostDetail(txid){
     hdr.innerHTML='<span>0 replies</span><span style="color:var(--muted);font-size:.82rem;">💬 0 · 🔁 0 · ❤️ 0</span>';
     body.appendChild(hdr);
     const threadWrap=document.createElement('div');
+    const threadList=document.createElement('div');
+    threadWrap.appendChild(threadList);
     body.appendChild(threadWrap);
     const metrics={comments:0,retweets:0,likes:0};
     const seen=new Set([rootTx]);
     const threadAddr=await kwAddr(rootTx);
     if(token!==S.runTokens.thread) return;
     let skip=0,replyCount=0;
+    let stalePageRuns=0;
     const redrawHdr=()=>{
       hdr.innerHTML=`<span>${plural(replyCount,'reply')}</span><span style="color:var(--muted);font-size:.82rem;">💬 ${metrics.comments} · 🔁 ${metrics.retweets} · ❤️ ${metrics.likes}</span>`;
     };
     const loadMore=async(ctx)=>{
-      if(!ctx||ctx.loading||ctx.done||token!==S.runTokens.thread) return;
+      if(!ctx||ctx.loading||ctx.done||ctx.cooldown||token!==S.runTokens.thread) return;
       ctx.loading=true;
       setObserverState('thread','Loading more replies…');
       try{
@@ -3807,6 +3938,7 @@ async function openPostDetail(txid){
         const fresh=blockFilterRows(replies.filter(r=>r?.txId&&!seen.has(r.txId)&&r.txId!==rootTx));
         fresh.forEach(r=>seen.add(r.txId));
         if(fresh.length){
+          stalePageRuns=0;
           const pc=await buildSenderProfileCache(fresh,profileCache);
           Object.assign(profileCache,pc||{});
           fresh.forEach(r=>{
@@ -3816,24 +3948,33 @@ async function openPostDetail(txid){
             if(a.like) metrics.likes+=1;
             if(a.comment||a.retweet){
               replyCount+=1;
-              threadWrap.appendChild(buildTweetEl(r,{profileCache,profileNav:'main',withEngagement:false}));
+              threadList.appendChild(buildTweetEl(r,{profileCache,profileNav:'main',withEngagement:false}));
             }
           });
           redrawHdr();
+        }else if(replies.length>=PAGE_SIZE){
+          stalePageRuns+=1;
         }else if(replyCount===0){
-          threadWrap.innerHTML='<div class="feed-empty">No replies yet.</div>';
+          threadList.innerHTML='<div class="feed-empty">No replies yet.</div>';
         }
-        if(replies.length<PAGE_SIZE||!fresh.length){
+        if(replies.length<PAGE_SIZE||stalePageRuns>=8){
           ctx.done=true;
           setObserverState('thread',replyCount?'End of thread':'',true);
+        }else if(!fresh.length&&replies.length>=PAGE_SIZE){
+          setObserverState('thread','Scanning for more replies…');
         }else setObserverState('thread','');
-      }catch{
-        ctx.done=true;
-        if(replyCount===0) threadWrap.innerHTML='<div class="feed-empty">No replies yet.</div>';
-        setObserverState('thread','Could not load more replies',true);
-      }finally{ctx.loading=false;}
+      }catch(e){
+        if(!shouldCooldownObserverError(e)||!startObserverCooldown('thread',ctx,()=>loadMore(ctx),10)){
+          ctx.done=true;
+          if(replyCount===0) threadList.innerHTML='<div class="feed-empty">No replies yet.</div>';
+          setObserverState('thread','Could not load more replies',true);
+        }
+      }finally{
+        ctx.loading=false;
+        queueObserverLoadIfNeeded(ctx,()=>loadMore(ctx));
+      }
     };
-    const ctx=makeInfiniteObserver('thread',body,()=>loadMore(ctx),{root:body.closest('.modal')||null,rootMargin:'500px 0px 500px 0px'});
+    const ctx=makeInfiniteObserver('thread',threadWrap,()=>loadMore(ctx),{root:body.closest('.modal')||null,rootMargin:'500px 0px 500px 0px'});
     await loadMore(ctx);
   }catch(e){body.innerHTML=`<div class="feed-err">${funnyErrMsg(e)}</div>`;}
 }
