@@ -825,6 +825,12 @@ function makeInfiniteObserver(name,container,onNearBottom,{root=null,rootMargin=
   S.observers[name]=ctx;
   return ctx;
 }
+function appendBeforeObserverSentinel(container,node,ctx){
+  if(!container||!node) return;
+  const sent=ctx?.sentinel;
+  if(sent&&sent.parentNode===container) container.insertBefore(node,sent);
+  else container.appendChild(node);
+}
 function shouldCooldownObserverError(err){
   const kind=norm(err?.kind).toLowerCase();
   const status=Number(err?.status||0);
@@ -2497,7 +2503,7 @@ async function renderProfileWithPagination(container, profile, official, ownProf
         Object.assign(postCache,extra||{});
         const empty=feedWrap.querySelector('.feed-empty');
         if(empty) empty.remove();
-        fresh.forEach(r=>feedWrap.appendChild(buildTweetEl(r,{profileCache:postCache,profileNav:'main'})));
+        fresh.forEach(r=>appendBeforeObserverSentinel(feedWrap,buildTweetEl(r,{profileCache:postCache,profileNav:'main'}),ctx));
       }else if(rows.length>=PAGE_SIZE){
         stalePageRuns+=1;
       }
@@ -3423,7 +3429,7 @@ async function loadHomeFeed(){
           stalePageRuns=0;
           const pc=await buildSenderProfileCache(fresh,profileCache);
           Object.assign(profileCache,pc||{});
-          fresh.forEach(root=>feed.appendChild(buildTweetEl(root,{profileCache})));
+          fresh.forEach(root=>appendBeforeObserverSentinel(feed,buildTweetEl(root,{profileCache}),ctx));
         }else if(rows.length>=HOME_PAGE_SIZE){
           stalePageRuns+=1;
         }
