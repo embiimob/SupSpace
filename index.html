@@ -651,8 +651,8 @@ const AUD_RE = /\.(mp3|wav|ogg|flac|webm|aac|m4a|opus)$/i;
 const VID_RE = /\.(mp4|mov|avi|webm|ogv|m3u8)$/i;
 const TXID_RE = /^[0-9a-fA-F]{64}$/;
 const ADDR_RE = /^[mn][1-9A-HJ-NP-Za-km-z]{25,34}$/;
-const TAG_RE = /#([a-zA-Z0-9_-]{2,32})/g;
-const MENTION_RE = /@([A-Za-z0-9/]{1,64})/g;
+const TAG_RE = /(?:^|[^a-zA-Z0-9_&;])#([a-zA-Z0-9_-]{2,32})/g;
+const MENTION_RE = /(?:^|[^a-zA-Z0-9_&;])@([A-Za-z0-9/]{1,64})/g;
 const FALLBACK_AVI = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect width="96" height="96" rx="48" fill="#1d9bf0"/><circle cx="48" cy="36" r="20" fill="rgba(255,255,255,.9)"/><path d="M16 88c7-20 18-28 32-28s25 8 32 28" fill="rgba(255,255,255,.9)"/></svg>');
 const PAGE_SIZE = 50;
 const HOME_PAGE_SIZE = 30;
@@ -777,7 +777,7 @@ const fmtRel = v => {
 };
 const plural = (n,l) => `${n} ${l}${n===1?'':'s'}`;
 const parseManualRecipients = raw => norm(raw).split(/[;,]/).map(s=>s.trim()).filter(Boolean);
-const parseHashtags = msg => { const m=norm(msg).match(/#[^\s]{1,20}/g)||[]; return [...new Set(m.map(t=>t.slice(1).trim()).filter(Boolean))]; };
+const parseHashtags = msg => { const m=norm(msg).match(/(?:^|[^a-zA-Z0-9_&;])#[^\s]{1,20}/g)||[]; return [...new Set(m.map(t=>t.replace(/^[^#]+/, '').slice(1).trim()).filter(Boolean))]; };
 const $ = id => document.getElementById(id);
 const clr = el => { el.replaceChildren(); };
 function autoResize(ta) { ta.style.height='auto'; ta.style.height=ta.scrollHeight+'px'; }
@@ -1908,8 +1908,8 @@ function parseMsg(text){
 }
 function annotateText(text){
   return esc(text)
-    .replace(/(@[A-Za-z0-9\/]{1,64})/g,'<span class="mention" onclick="openUserProfile(\'$1\'.slice(1))">$1</span>')
-    .replace(/(#[A-Za-z0-9_-]{2,32})/g,'<span class="tag" onclick="exploreTag(\'$1\'.slice(1))">$1</span>')
+    .replace(/(^|[^a-zA-Z0-9_&;])(@[A-Za-z0-9\/]{1,64})/g,'$1<span class="mention" onclick="openUserProfile(\'$2\'.slice(1))">$2</span>')
+    .replace(/(^|[^a-zA-Z0-9_&;])(#[A-Za-z0-9_-]{2,32})/g,'$1<span class="tag" onclick="exploreTag(\'$2\'.slice(1))">$2</span>')
     .replace(/(&lt;&lt;[0-9a-fA-F]{64}&gt;&gt;)/g,'<span class="cref">$1</span>');
 }
 function classifyThreadActions(message=''){
