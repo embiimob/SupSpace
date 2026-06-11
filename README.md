@@ -106,7 +106,7 @@ Import the same WIF in any of these apps and your identity (address and profile)
 | Endpoint | Purpose in SupSpace |
 | --- | --- |
 | `GET /address/<addr>` | Reads confirmed/unconfirmed balance stats for wallet panels. |
-| `GET /address/<addr>/utxo` | Fetches spendable UTXOs for main + derived change addresses. |
+| `GET /address/<addr>/utxo` | Fetches spendable UTXOs (only called if confirmed balance > 0). |
 | `GET /v1/fees/recommended` | Gets fee estimates (falls back to default fee rate if unavailable). |
 | `POST /tx` (body=`raw tx hex`) | Broadcasts signed legacy transaction for post send or consolidation. |
 
