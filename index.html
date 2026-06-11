@@ -637,7 +637,6 @@ const WALLET_KEY = 'sup_iw_v1';
 const SOCIAL_KEY = 'sup_social_v1';
 const WALLET_MIN_PASS = 12;
 const WALLET_PBKDF2 = 600000;
-const CHANGE_COUNT = 2;
 const CHANGE_PREFIX = 'sup:testnet3:change:';
 const AMOUNT_PER = DUST / 1e8;
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
@@ -1161,9 +1160,13 @@ async function buildSignerEntry(pb,lbl){const pub=priv2pub(pb),h=ripemd160(await
 async function buildKeyring(base){
   const main=await buildSignerEntry(base,'main');
   const changes=[];
-  for(let i=0;i<CHANGE_COUNT;i++){
+  for(let i=0;i<200;i++){
     const d=await deriveChangeKey(base,`slot-${i+1}`);
-    changes.push(await buildSignerEntry(d,`change-${i+1}`));
+    const entry=await buildSignerEntry(d,`change-${i+1}`);
+    const bal=await getBalance(entry.addr).catch(()=>({confirmed:0,unconfirmed:0,tx_count:0,utxo_count:0}));
+    entry.utxoCount=bal.utxo_count;
+    changes.push(entry);
+    if(i>=1 && bal.tx_count===0) break;
   }
   return{main,changes,all:[main,...changes]};
 }
@@ -1200,7 +1203,6 @@ async function broadcastTx(outputs) {
   if(!S.priv) throw new Error('Wallet is locked');
   const kr=S.keyring||await buildKeyring(S.priv);
   if(!S.keyring) S.keyring=kr;
-  const [cA,cB]=kr.changes;
 
   let feeRate=FEE_DEFAULT;
   try{const fr=await fetch(`${MEMPOOL_API}/v1/fees/recommended`);const fp=await fr.json();feeRate=Math.max(Number(fp?.halfHourFee||FEE_DEFAULT),FEE_MIN);}catch{}
@@ -1210,14 +1212,17 @@ async function broadcastTx(outputs) {
 
   // 1. Fetch balances to find candidate addresses
   const totByAddr=new Map();
+  const utxoCountByAddr=new Map();
   const balancePromises = kr.all.map(async sg => {
-    const bal = await getBalance(sg.addr).catch(() => ({confirmed: 0, unconfirmed: 0}));
+    const bal = await getBalance(sg.addr).catch(() => ({confirmed: 0, unconfirmed: 0, utxo_count: 0}));
     totByAddr.set(sg.addr, bal.confirmed);
+    utxoCountByAddr.set(sg.addr, bal.utxo_count);
+    sg.utxoCount = bal.utxo_count;
   });
   await Promise.all(balancePromises);
 
   // Select the address with the most funds as the primary candidate
-  const candidates=[kr.main, cA, cB].sort((a,b)=>(totByAddr.get(b.addr)||0)-(totByAddr.get(a.addr)||0));
+  const candidates=[kr.main, ...kr.changes].sort((a,b)=>(totByAddr.get(b.addr)||0)-(totByAddr.get(a.addr)||0));
 
   let selSourceLabel='single-source',sel=null,selUtxos=[],selTotal=0;
 
@@ -1284,17 +1289,36 @@ async function broadcastTx(outputs) {
   const change=selTotal-totalOut-fee;
   if(change<0) throw new Error('Insufficient balance after fee');
 
-  // Pick a change address: alternate between cA and cB based on input used
-  let changeAddr = cA.addr;
-  if (sel) {
-    if (sel.addr === cA.addr) changeAddr = cB.addr;
-    else if (sel.addr === cB.addr) changeAddr = cA.addr;
-    else changeAddr = S.lastChangeOutputAddr === cA.addr ? cB.addr : cA.addr;
-  } else {
-    // If mixed, just alternate
-    changeAddr = S.lastChangeOutputAddr === cA.addr ? cB.addr : cA.addr;
+  // Pick a change address: alternate among valid change addresses based on input used
+  let validChanges = kr.changes.filter(c => utxoCountByAddr.get(c.addr) < 420);
+
+  if (validChanges.length === 0) {
+    const nextIdx = kr.changes.length;
+    if (nextIdx < 200) {
+      const d = await deriveChangeKey(kr.main.pb, `slot-${nextIdx+1}`);
+      const newChange = await buildSignerEntry(d, `change-${nextIdx+1}`);
+      newChange.utxoCount = 0;
+      kr.changes.push(newChange);
+      kr.all.push(newChange);
+      validChanges.push(newChange);
+    } else {
+      throw new Error('All 200 change addresses have >= 420 UTXOs. Cannot create more change outputs.');
+    }
   }
-  S.lastChangeOutputAddr=changeAddr;
+
+  let changeAddr = validChanges[0].addr;
+  if (validChanges.length > 1) {
+    const lastIdx = validChanges.findIndex(c => c.addr === S.lastChangeOutputAddr);
+    if (lastIdx >= 0) {
+      changeAddr = validChanges[(lastIdx + 1) % validChanges.length].addr;
+    } else if (sel) {
+      const selIdx = validChanges.findIndex(c => c.addr === sel.addr);
+      if (selIdx >= 0) {
+        changeAddr = validChanges[(selIdx + 1) % validChanges.length].addr;
+      }
+    }
+  }
+  S.lastChangeOutputAddr = changeAddr;
   const finalOuts=[...outSats];
   if(change>=DUST) finalOuts.push({addr:changeAddr,sat:change});
   const rawHex=await buildTx(selUtxos,finalOuts);
@@ -1302,6 +1326,71 @@ async function broadcastTx(outputs) {
   if(!res.ok) throw new Error(`Broadcast failed: ${await res.text()}`);
   return (await res.text()).trim();
 }
+async function consolidateForMessagingFunds() {
+  if(!S.priv) throw new Error('Unlock wallet first');
+  const kr=S.keyring||await buildKeyring(S.priv);
+  if(!S.keyring) S.keyring=kr;
+
+  const allUtxos = [];
+  const validChanges = [];
+
+  await Promise.all(kr.all.map(async sg => {
+    const bal = await getBalance(sg.addr).catch(() => ({confirmed: 0, unconfirmed: 0, utxo_count: 0}));
+    if (kr.changes.includes(sg)) {
+      sg.utxoCount = bal.utxo_count;
+      if (sg.utxoCount < 420) {
+        validChanges.push(sg);
+      }
+    }
+    if (bal.confirmed <= 0) return;
+    const r=await fetch(`${MEMPOOL_API}/address/${encodeURIComponent(sg.addr)}/utxo`);
+    if(!r.ok) throw new Error(`UTXO fetch failed for ${sg.label}`);
+    const j=await r.json();
+    const utxos = j.filter(u=>u.status?.confirmed).map(u=>({...u,srcAddr:sg.addr,signer:sg}));
+    allUtxos.push(...utxos);
+  }));
+
+  if(!allUtxos.length) throw new Error('No confirmed funds to consolidate');
+
+  if (validChanges.length === 0) {
+     const nextIdx = kr.changes.length;
+     if (nextIdx < 200) {
+        const d = await deriveChangeKey(kr.main.pb, `slot-${nextIdx+1}`);
+        const newChange = await buildSignerEntry(d, `change-${nextIdx+1}`);
+        newChange.utxoCount = 0;
+        kr.changes.push(newChange);
+        kr.all.push(newChange);
+        validChanges.push(newChange);
+     } else {
+        throw new Error('No valid change addresses to consolidate to');
+     }
+  }
+
+  validChanges.sort((a,b) => a.utxoCount - b.utxoCount);
+  const targetChange = validChanges[0];
+
+  let feeRate=FEE_DEFAULT;
+  try{const fr=await fetch(`${MEMPOOL_API}/v1/fees/recommended`);const fp=await fr.json();feeRate=Math.max(Number(fp?.halfHourFee||FEE_DEFAULT),FEE_MIN);}catch{}
+  const fee=Math.ceil((10+148*allUtxos.length+34)*feeRate);
+  const total=allUtxos.reduce((s,u)=>s+Number(u.value||0),0);
+  const send=total-fee;
+  if(send<DUST) throw new Error(`Consolidation output too small after fee (${send} sat)`);
+
+  const rawHex=await buildTx(allUtxos,[{addr:targetChange.addr,sat:send}]);
+  const res=await fetch(`${MEMPOOL_API}/tx`,{method:'POST',headers:{'Content-Type':'text/plain'},body:rawHex});
+  if(!res.ok) throw new Error(`Consolidation broadcast failed: ${await res.text()}`);
+  return(await res.text()).trim();
+}
+
+window.consolidateForMessaging=async function(){
+  walletMsg('Consolidating for messaging…','info');
+  try{
+    const txid=await consolidateForMessagingFunds();
+    walletMsg(`Consolidated to change address. txid: ${txid}`,'good');
+    refreshBalance();
+  }catch(e){walletMsg(e.message||'Consolidation failed','danger');}
+};
+
 async function consolidateChangeFunds(){
   if(!S.priv) throw new Error('Unlock wallet first');
   const kr=S.keyring||await buildKeyring(S.priv);
@@ -1634,13 +1723,13 @@ async function getBalance(addr){
   const p=await r.json();
   const cs=p?.chain_stats||{},ms=p?.mempool_stats||{};
 
-  // A balance is only fully confirmed available if mempool isn't actively spending it.
-  // If there's an unconfirmed spent sum, we should subtract it from the confirmed balance
-  // so the user sees their true available balance. The unconfirmed total should just represent incoming funds.
   const confirmedAvailable = (Number(cs.funded_txo_sum||0)-Number(cs.spent_txo_sum||0)) - Number(ms.spent_txo_sum||0);
   const unconfirmedIncoming = Number(ms.funded_txo_sum||0);
 
-  return{confirmed:confirmedAvailable,unconfirmed:unconfirmedIncoming};
+  const tx_count = Number(cs.tx_count||0) + Number(ms.tx_count||0);
+  const utxo_count = (Number(cs.funded_txo_count||0) - Number(cs.spent_txo_count||0)) + (Number(ms.funded_txo_count||0) - Number(ms.spent_txo_count||0));
+
+  return{confirmed:confirmedAvailable,unconfirmed:unconfirmedIncoming, tx_count, utxo_count};
 }
 
 function normalizeProfile(raw,fallbackAddr=''){
@@ -2581,10 +2670,11 @@ function renderWalletUI(container, balance=null){
         <span style="color:var(--muted);font-size:.82rem;">Loading balances…</span>
       </div>
     </div>
-    <div class="f-status info" id="walletStatusMsg" style="margin-bottom:12px;">Wallet unlocked ✓ (main + ${CHANGE_COUNT} change addresses)</div>
+    <div class="f-status info" id="walletStatusMsg" style="margin-bottom:12px;">Wallet unlocked ✓ (main + ${S.keyring?.changes?.length || 0} change addresses)</div>
     <div class="btn-row" style="margin-bottom:16px;">
       <button class="btn btn-out btn-sm" onclick="exportWif()">Export WIF</button>
       <button class="btn btn-pri btn-sm" onclick="consolidateChange()">Consolidate</button>
+      <button class="btn btn-pri btn-sm" onclick="consolidateForMessaging()">Consolidate for messaging</button>
       <button class="btn btn-out btn-sm" onclick="lockWallet()">Lock</button>
       <button class="btn btn-dng btn-sm" onclick="forgetWallet()">Forget key</button>
     </div>
