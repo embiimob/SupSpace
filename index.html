@@ -1243,7 +1243,12 @@ async function broadcastTx(outputs) {
   for(const src of candidates){
     if ((totByAddr.get(src.addr) || 0) < totalOut + estFee(1, outSats.length + 1)) continue; // Not enough balance even theoretically
 
-    const pool = await fetchUtxosForSigner(src);
+    let pool = [];
+    try {
+      pool = await fetchUtxosForSigner(src);
+    } catch(e) {
+      continue; // Skip if utxo fetch fails
+    }
     pool.sort((a,b)=>b.value-a.value);
 
     let lo=[],lt=0;
@@ -1265,8 +1270,10 @@ async function broadcastTx(outputs) {
     let allUtxos = [];
     for (const sg of kr.all) {
       if ((totByAddr.get(sg.addr) || 0) > 0) {
-         const pool = await fetchUtxosForSigner(sg);
-         allUtxos.push(...pool);
+         try {
+           const pool = await fetchUtxosForSigner(sg);
+           allUtxos.push(...pool);
+         } catch(e) {}
       }
     }
     if(!allUtxos.length) throw new Error('No confirmed UTXOs found');
@@ -1343,11 +1350,13 @@ async function consolidateForMessagingFunds() {
       }
     }
     if (bal.confirmed <= 0) return;
-    const r=await fetch(`${MEMPOOL_API}/address/${encodeURIComponent(sg.addr)}/utxo`);
-    if(!r.ok) throw new Error(`UTXO fetch failed for ${sg.label}`);
-    const j=await r.json();
-    const utxos = j.filter(u=>u.status?.confirmed).map(u=>({...u,srcAddr:sg.addr,signer:sg}));
-    allUtxos.push(...utxos);
+    try {
+      const r=await fetch(`${MEMPOOL_API}/address/${encodeURIComponent(sg.addr)}/utxo`);
+      if(!r.ok) throw new Error(`UTXO fetch failed for ${sg.label}`);
+      const j=await r.json();
+      const utxos = j.filter(u=>u.status?.confirmed).map(u=>({...u,srcAddr:sg.addr,signer:sg}));
+      allUtxos.push(...utxos);
+    } catch(e) {}
   }));
 
   if(!allUtxos.length) throw new Error('No confirmed funds to consolidate');
@@ -1400,10 +1409,14 @@ async function consolidateChangeFunds(){
   const utxoGroups=await Promise.all(changeSigners.map(async sg=>{
     const bal = await getBalance(sg.addr).catch(() => ({confirmed: 0, unconfirmed: 0}));
     if (bal.confirmed <= 0) return [];
-    const r=await fetch(`${MEMPOOL_API}/address/${encodeURIComponent(sg.addr)}/utxo`);
-    if(!r.ok) throw new Error(`UTXO fetch failed for ${sg.label}`);
-    const j=await r.json();
-    return j.filter(u=>u.status?.confirmed).map(u=>({...u,srcAddr:sg.addr,signer:sg}));
+    try {
+      const r=await fetch(`${MEMPOOL_API}/address/${encodeURIComponent(sg.addr)}/utxo`);
+      if(!r.ok) throw new Error(`UTXO fetch failed for ${sg.label}`);
+      const j=await r.json();
+      return j.filter(u=>u.status?.confirmed).map(u=>({...u,srcAddr:sg.addr,signer:sg}));
+    } catch(e) {
+      return [];
+    }
   }));
   const utxos=utxoGroups.flat();
   if(!utxos.length) throw new Error('No confirmed change funds to consolidate');
