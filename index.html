@@ -1534,7 +1534,7 @@ function extractIpfsParts(v){
   try{const u=new URL(input);const hs=norm(u.hostname).split('.ipfs.');if(hs.length>1&&CID_RE.test(hs[0]))return{cid:hs[0],path:norm(u.pathname).replace(/^\/+/,'')};const pm=norm(u.pathname).match(IPFS_PATH_RE);if(pm)return{cid:pm[1],path:norm(pm[2]||'')};}catch{}
   return null;
 }
-function normOnChain(v){const t=norm(v);const m=t.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})[\\/]([^<>]+)$/);if(!m)return null;const chain=norm(m[1]||'');const txid=m[2].toLowerCase();const path=norm(m[3]).replace(/^\/+/,'').replace(UNSAFE_RE,'');if(!path)throw new Error('Attachment needs filename');return`${chain?chain.toUpperCase()+':':''}${txid}/${path}`;}
+function normOnChain(v){const t=norm(v);const m=t.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})(?:[\\/]([^<>]+))?$/);if(!m)return null;const chain=norm(m[1]||'');const txid=m[2].toLowerCase();const path=norm(m[3]||'').replace(/^\/+/,'').replace(UNSAFE_RE,'');return`${chain?chain.toUpperCase()+':':''}${txid}${path?'/'+path:''}`;}
 function onchainFileUrl(txid,path=''){
   const safePath=norm(path).replace(/^\/+/,'').split('/').filter(Boolean).map(p=>encodeURIComponent(p)).join('/');
   return `${API_BASE}/root/${txid.toLowerCase()}/${safePath}`;
@@ -1546,7 +1546,7 @@ async function normalizeAttach(raw,{imgOnly=false}={}){
   const oc=normOnChain(input);
   if(oc){return{canonical:oc,preview:'',type:IMG_RE.test(oc)?'image':VID_RE.test(oc)?'video':AUD_RE.test(oc)?'audio':'file'};}
   if(/^https?:\/\//i.test(input)){const u=new URL(input);if(imgOnly&&!IMG_RE.test(u.pathname))throw new Error('Profile images must be IPFS, on-chain, or direct image URLs');return{canonical:u.toString(),preview:u.toString(),type:IMG_RE.test(u.pathname)?'image':VID_RE.test(u.pathname)?'video':AUD_RE.test(u.pathname)?'audio':'link'};}
-  throw new Error('Use IPFS:cid/file.ext, txid/file.ext, or https://…');
+  throw new Error('Use IPFS:cid/file.ext, txid/file.ext, txid (for retweet), or https://…');
 }
 function mediaKindFromPath(path=''){
   const p=norm(path);
@@ -1610,10 +1610,14 @@ function attachmentPreviewCandidates(token){
     }
     return{kind:mediaKindFromPath(ipfs.path),urls:[...new Set(urls)],raw:t};
   }
-  const oc=t.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})[\\/]([^<>]+)$/);
+  const oc=t.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})(?:[\\/]([^<>]+))?$/);
   if(oc){
-    const txid=oc[2].toLowerCase(),path=oc[3];
-    return{kind:mediaKindFromPath(path),urls:[onchainFileUrl(txid,path)],raw:t};
+    const txid=oc[2].toLowerCase(),path=oc[3]||'';
+    if(path){
+        return{kind:mediaKindFromPath(path),urls:[onchainFileUrl(txid,path)],raw:t};
+    } else {
+        return{kind:'retweet',urls:[],raw:t};
+    }
   }
   return{kind:'file',urls:[],raw:t};
 }
@@ -2033,9 +2037,9 @@ function parseMsg(text){
     const inner=ref.slice(2,-2).trim();
     if(!inner) return;
     if(/^-?\d+$/.test(inner)){ salts.push(parseInt(inner,10)); return; }
-    if(TXID_RE.test(inner)) return;
+    if(TXID_RE.test(inner)) { attachments.push(inner); return; }
     if(/^https?:\/\//i.test(inner)) links.push(inner);
-    else if(/^IPFS:/i.test(inner)||/^[0-9a-fA-F]{64}[\\/]/.test(inner)||/^(BTC|LTC|DOG|MZC):[0-9a-fA-F]{64}[\\/]/i.test(inner)) attachments.push(inner);
+    else if(/^IPFS:/i.test(inner)||/^[0-9a-fA-F]{64}(?:[\\/].*)?$/.test(inner)||/^(BTC|LTC|DOG|MZC):[0-9a-fA-F]{64}(?:[\\/].*)?$/i.test(inner)) attachments.push(inner);
   });
   return{clean,attachments,links,salts};
 }
@@ -2056,8 +2060,8 @@ function classifyThreadActions(message=''){
   });
   const plainTxidOnly=TXID_RE.test(norm(text)) && text === '';
   const hasTxidRef=refs.some(r=>TXID_RE.test(r))||plainTxidOnly||standaloneTxids.length>0;
-  const hasAttachment=refs.some(r=>!TXID_RE.test(r)&&!/^[-+]?\d+$/.test(r)&&(r.startsWith('IPFS:')||/^[0-9a-fA-F]{64}[\\/]/.test(r)||/^(BTC|LTC|DOG|MZC):[0-9a-fA-F]{64}[\\/]/i.test(r)||/^https?:\/\//i.test(r)));
-  const hasSalt=refs.some(r=>!TXID_RE.test(r)&&!(r.startsWith('IPFS:')||/^[0-9a-fA-F]{64}[\\/]/.test(r)||/^(BTC|LTC|DOG|MZC):[0-9a-fA-F]{64}[\\/]/i.test(r)||/^https?:\/\//i.test(r)));
+  const hasAttachment=refs.some(r=>!/^[-+]?\d+$/.test(r)&&(r.startsWith('IPFS:')||/^[0-9a-fA-F]{64}(?:[\\/].*)?$/.test(r)||/^(BTC|LTC|DOG|MZC):[0-9a-fA-F]{64}(?:[\\/].*)?$/i.test(r)||/^https?:\/\//i.test(r)));
+  const hasSalt=refs.some(r=>!(r.startsWith('IPFS:')||/^[0-9a-fA-F]{64}(?:[\\/].*)?$/.test(r)||/^(BTC|LTC|DOG|MZC):[0-9a-fA-F]{64}(?:[\\/].*)?$/i.test(r)||/^https?:\/\//i.test(r)));
   const like=hasSalt&&((!Boolean(text||hasAttachment))||hasTxidRef);
   return{
     comment:Boolean((text&&!plainTxidOnly)||hasAttachment),
@@ -2276,10 +2280,12 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
   });
   retweetBtn?.addEventListener('click',e=>{
     e.stopPropagation();
-    const msg = prompt("Add a comment to your retweet (optional):");
-    if(msg === null) return;
-    const customText = msg.trim() ? `${msg}\n<<${root.txId}>>` : `<<${root.txId}>>`;
-    sendThreadAction(root.txId,'retweet',art,customText).catch(()=>{});
+    openModal('modalCompose');
+    const attachInp = document.getElementById('cmAttachInput');
+    if (attachInp) {
+        attachInp.value = root.txId;
+        addComposedAttachment();
+    }
   });
   likeBtn?.addEventListener('click',e=>{e.stopPropagation();sendThreadAction(root.txId,'like',art).catch(()=>{});});
   threadBtn?.addEventListener('click',e=>{
@@ -3317,6 +3323,7 @@ function renderComposeAttachments(){
     if(preview&&info.kind==='image') item.innerHTML=`<img ${attrs} alt=""><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
     else if(preview&&info.kind==='audio') item.innerHTML=`<audio controls ${attrs}></audio><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
     else if(preview&&info.kind==='video') item.innerHTML=`<video controls ${attrs} style="max-height:100px;width:100%"></video><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
+    else if(info.kind==='retweet') item.innerHTML=`<div class="cm-attach-text">🔁 ${esc(norm(tok).slice(0,60))}</div><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
     else item.innerHTML=`<div class="cm-attach-text">${esc(norm(tok).slice(0,60))}</div><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
     prev.appendChild(item);
   });
