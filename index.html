@@ -2048,9 +2048,14 @@ function annotateText(text){
 function classifyThreadActions(message=''){
   const dec=String(message||'').replace(/&lt;/g,'<').replace(/&gt;/g,'>');
   const refs=[...dec.matchAll(/<<([^>]+)>>/g)].map(m=>norm(m[1]));
-  const text=dec.replace(/<<[^>]+>>/g,'').trim();
-  const plainTxidOnly=TXID_RE.test(norm(text));
-  const hasTxidRef=refs.some(r=>TXID_RE.test(r))||plainTxidOnly;
+  let text=dec.replace(/<<[^>]+>>/g,'').trim();
+  const standaloneTxids=[...text.matchAll(/(?:^|[\s\n<])([0-9a-fA-F]{64})(?=[>\s\n]|$)/g)].map(m=>m[1]);
+  standaloneTxids.forEach(tx=>{
+    text=text.replace(new RegExp(`(?:^|[\\s\\n]|^<|\\s<)${tx}(?=>\\s|>\\n|>$|>|\\s|\\n|$)`,'g'), ' ').trim();
+    text=text.replace(new RegExp(`(?:^|\\s)<\\s?(?:\\s|>|$)`,'g'), ' ').replace(/^[><\s]+|[><\s]+$/g, '').trim();
+  });
+  const plainTxidOnly=TXID_RE.test(norm(text)) && text === '';
+  const hasTxidRef=refs.some(r=>TXID_RE.test(r))||plainTxidOnly||standaloneTxids.length>0;
   const hasAttachment=refs.some(r=>!TXID_RE.test(r)&&!/^[-+]?\d+$/.test(r)&&(r.startsWith('IPFS:')||/^[0-9a-fA-F]{64}[\\/]/.test(r)||/^(BTC|LTC|DOG|MZC):[0-9a-fA-F]{64}[\\/]/i.test(r)||/^https?:\/\//i.test(r)));
   const hasSalt=refs.some(r=>!TXID_RE.test(r)&&!(r.startsWith('IPFS:')||/^[0-9a-fA-F]{64}[\\/]/.test(r)||/^(BTC|LTC|DOG|MZC):[0-9a-fA-F]{64}[\\/]/i.test(r)||/^https?:\/\//i.test(r)));
   const like=hasSalt&&((!Boolean(text||hasAttachment))||hasTxidRef);
@@ -2150,6 +2155,14 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
   let retweetTxids=[...rawMsg.matchAll(/<<([0-9a-fA-F]{64})>>/g)].map(m=>m[1].toLowerCase());
   const plainTxid=TXID_RE.test(norm(cleanText))?norm(cleanText).toLowerCase():'';
   if(!retweetTxids.length&&plainTxid) retweetTxids=[plainTxid];
+
+  const standaloneTxids=[...cleanText.matchAll(/(?:^|[\s\n<])([0-9a-fA-F]{64})(?=[>\s\n]|$)/g)].map(m=>m[1].toLowerCase());
+  retweetTxids=[...new Set([...retweetTxids,...standaloneTxids])];
+  standaloneTxids.forEach(tx=>{
+    cleanText=cleanText.replace(new RegExp(`(?:^|[\\s\\n]|^<|\\s<)${tx}(?=>\\s|>\\n|>$|>|\\s|\\n|$)`,'gi'), ' ').trim();
+    cleanText=cleanText.replace(new RegExp(`(?:^|\\s)<\\s?(?:\\s|>|$)`,'g'), ' ').replace(/^[><\s]+|[><\s]+$/g, '').trim();
+  });
+
   const hasRetweetRef=retweetTxids.length>0;
 
   // if no text and no attachments but has salts, deterministic emoji
@@ -2261,7 +2274,13 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
     clearThreadPreviewCacheByTweet(art,root.txId);
     (onReply||window.openReply)?.(root.txId);
   });
-  retweetBtn?.addEventListener('click',e=>{e.stopPropagation();sendThreadAction(root.txId,'retweet',art).catch(()=>{});});
+  retweetBtn?.addEventListener('click',e=>{
+    e.stopPropagation();
+    const msg = prompt("Add a comment to your retweet (optional):");
+    if(msg === null) return;
+    const customText = msg.trim() ? `${msg}\n<<${root.txId}>>` : `<<${root.txId}>>`;
+    sendThreadAction(root.txId,'retweet',art,customText).catch(()=>{});
+  });
   likeBtn?.addEventListener('click',e=>{e.stopPropagation();sendThreadAction(root.txId,'like',art).catch(()=>{});});
   threadBtn?.addEventListener('click',e=>{
     e.stopPropagation();
@@ -2431,7 +2450,7 @@ async function toggleInlineThread(art,txid,{profileCache={},onThread,profileNav=
   updateTweetCardUi(art);
   renderInlineThread(art,{profileCache:state.profileCache,profileNav});
 }
-async function sendThreadAction(txid,kind,art){
+async function sendThreadAction(txid,kind,art,customText){
   if(!S.priv||!S.addr){openModal('modalWallet');return;}
   const t=norm(txid).toLowerCase();
   if(!TXID_RE.test(t)) return;
@@ -2440,7 +2459,7 @@ async function sendThreadAction(txid,kind,art){
   if(btn) btn.dataset.busy='1';
   try{
     const extras=[await kwAddr(t)];
-    const text=kind==='retweet'?`<<${t}>>`:'';
+    const text=kind==='retweet'?(customText!==undefined?customText:`<<${t}>>`):'';
     const outputs=await buildMsgOutputs({text,attachments:[],extras,fromAddr:S.addr});
     const actionTx=await broadcastTx(outputs);
     const optimisticRoot={message:text,fromAddr:S.addr,toAddrs:[],blockDate:'',txId:actionTx,files:[],raw:{},isPending:true};
@@ -3412,6 +3431,7 @@ async function submitCompose(){
     // clear
     const cb=$('cmBody');if(cb){cb.value='';autoResize(cb);}
     $('cmTxid')&&($('cmTxid').value='');$('cmRecipients')&&($('cmRecipients').value='');
+    $('cmAttachInput')&&($('cmAttachInput').value='');$('cmAttachFile')&&($('cmAttachFile').value='');
     S.composeAttachments=[];renderComposeAttachments();
     setTimeout(()=>closeModal('modalCompose'),1500);
   }catch(e){if(st)st.textContent=e.message||'Post failed';}
