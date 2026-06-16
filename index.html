@@ -601,7 +601,7 @@
     <div class="modal-body" style="padding:16px;">
       <div id="transferStep1">
         <label class="f-label" style="display:block;margin-bottom:8px;">Target Address</label>
-        <input type="text" id="transferAddress" class="f-input" style="width:100%;margin-bottom:16px;" placeholder="1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa" autocomplete="off">
+        <input type="text" id="transferAddress" class="f-input" style="width:100%;margin-bottom:16px;" placeholder="Enter transfer address" autocomplete="off">
         <div style="display:flex;justify-content:flex-end;gap:8px;">
           <button class="btn btn-out" onclick="closeModal('modalTransfer')">Cancel</button>
           <button class="btn" id="transferNextBtn" onclick="handleTransferNext()">Next</button>
@@ -1550,8 +1550,8 @@ async function buildProOutputs({urn,fnm,mnm,lnm,sfx,bio,img,urls,loc,enableSec,t
   const rset=new Set(enc);
   // URN keyword address
   rset.add(await deriveKeywordAddress(urn));
-  rset.add(S.addr);
   if(transferAddr) rset.add(transferAddr);
+  rset.add(S.addr);
   return[...rset].map(addr=>({addr,amount:AMOUNT_PER}));
 }
 
