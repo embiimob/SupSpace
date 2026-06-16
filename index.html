@@ -1537,7 +1537,7 @@ async function buildProOutputs({urn,fnm,mnm,lnm,sfx,bio,img,urls,loc,enableSec,t
   if(bio) pj.bio=bio; if(img) pj.img=img;
   if(Object.keys(urls).length) pj.url=urls;
   if(Object.keys(loc).length) pj.loc=loc;
-  if(transferAddr) pj.cre=[transferAddr];
+  if(transferAddr) pj.cre=[S.addr, transferAddr];
   else pj.cre=['0'];
   if(enableSec){const{x,y}=priv2pt(S.priv);pj.pkx=x.toString(16);pj.pky=y.toString(16);}
   const json=JSON.stringify(pj);
