@@ -582,10 +582,41 @@
         <div id="peLocPairs"></div>
       </div>
       <hr class="divider">
-      <div class="btn-row">
+      <div class="btn-row" style="display:flex;align-items:center;gap:8px;">
         <button class="btn btn-out btn-sm" onclick="estimateProfileTx()">Estimate cost</button>
+        <button id="peTransferBtn" class="btn btn-out btn-sm" onclick="showTransferDialog()" disabled>Transfer...</button>
         <span id="peCostNote" style="font-size:.82rem;color:var(--muted);"></span>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- TRANSFER PROFILE MODAL -->
+<div class="modal-overlay hidden" id="modalTransfer">
+  <div class="modal" style="max-width:400px;">
+    <div class="modal-hdr">
+      <button class="modal-x" onclick="closeModal('modalTransfer')">✕</button>
+      <span class="modal-title">Transfer Profile</span>
+    </div>
+    <div class="modal-body" style="padding:16px;">
+      <div id="transferStep1">
+        <label class="f-label" style="display:block;margin-bottom:8px;">Target Address</label>
+        <input type="text" id="transferAddress" class="f-input" style="width:100%;margin-bottom:16px;" placeholder="1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa" autocomplete="off">
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+          <button class="btn btn-out" onclick="closeModal('modalTransfer')">Cancel</button>
+          <button class="btn" id="transferNextBtn" onclick="handleTransferNext()">Next</button>
+        </div>
+      </div>
+      <div id="transferStep2" class="hidden">
+        <p style="color:var(--danger);font-weight:bold;margin-top:0;">Warning</p>
+        <p style="margin-bottom:16px;line-height:1.4;">Are you sure you want to transfer this handle to the following address? You will lose all control of it.</p>
+        <p id="transferConfirmAddr" style="word-break:break-all;font-family:monospace;background:var(--bg2);padding:8px;border-radius:4px;margin-bottom:16px;"></p>
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+          <button class="btn btn-out" onclick="$('transferStep1').classList.remove('hidden');$('transferStep2').classList.add('hidden');">Back</button>
+          <button class="btn btn-danger" id="transferConfirmBtn" onclick="confirmTransfer()">Yes, Transfer</button>
+        </div>
+      </div>
+      <div id="transferStatus" class="f-status hidden" style="margin-top:16px;"></div>
     </div>
   </div>
 </div>
@@ -1499,14 +1530,15 @@ async function buildMsgOutputs({text,attachments=[],extras=[],fromAddr}){
   return [...rset].map(addr=>({addr,amount:AMOUNT_PER}));
 }
 
-async function buildProOutputs({urn,fnm,mnm,lnm,sfx,bio,img,urls,loc,enableSec}){
+async function buildProOutputs({urn,fnm,mnm,lnm,sfx,bio,img,urls,loc,enableSec,transferAddr}){
   if(!S.priv||!S.addr) throw new Error('Unlock wallet first');
   const pj={urn};
   if(fnm) pj.fnm=fnm; if(mnm) pj.mnm=mnm; if(lnm) pj.lnm=lnm; if(sfx) pj.sfx=sfx;
   if(bio) pj.bio=bio; if(img) pj.img=img;
   if(Object.keys(urls).length) pj.url=urls;
   if(Object.keys(loc).length) pj.loc=loc;
-  pj.cre=['0'];
+  if(transferAddr) pj.cre=[transferAddr];
+  else pj.cre=['0'];
   if(enableSec){const{x,y}=priv2pt(S.priv);pj.pkx=x.toString(16);pj.pky=y.toString(16);}
   const json=JSON.stringify(pj);
   const delim=randDelim();
@@ -1519,6 +1551,7 @@ async function buildProOutputs({urn,fnm,mnm,lnm,sfx,bio,img,urls,loc,enableSec})
   // URN keyword address
   rset.add(await deriveKeywordAddress(urn));
   rset.add(S.addr);
+  if(transferAddr) rset.add(transferAddr);
   return[...rset].map(addr=>({addr,amount:AMOUNT_PER}));
 }
 
@@ -3002,12 +3035,14 @@ function populateProfileEditor(p){
 async function checkProfileHandle(){
   const urn=norm($('peUrn')?.value||'');
   const st=$('peStatus');
+  const transBtn=$('peTransferBtn');
+  if(transBtn) transBtn.disabled = true;
   if(!urn)return showStatus(st,'Enter a handle first','warn');
   showStatus(st,'Checking…','info');
   try{
     const found=await fetchProfileByURN(urn);
     if(!found?.addr){S.handleCheck={urn,ok:true};setChip($('peHandleBadge'),'Available','good');showStatus(st,`@${urn} is available`,'good');}
-    else if(found.addr===S.addr){S.handleCheck={urn,ok:true};setChip($('peHandleBadge'),'Yours','good');showStatus(st,`@${urn} is yours`,'good');}
+    else if(found.addr===S.addr){S.handleCheck={urn,ok:true};setChip($('peHandleBadge'),'Yours','good');showStatus(st,`@${urn} is yours`,'good');if(transBtn) transBtn.disabled = false;}
     else{S.handleCheck={urn,ok:false};setChip($('peHandleBadge'),'Taken','danger');showStatus(st,`@${urn} is taken by ${found.addr}`,'danger');}
   }catch(e){S.handleCheck=null;setChip($('peHandleBadge'),'Unknown','warn');showStatus(st,`Error: ${e.message}`,'warn');}
 }
@@ -3104,7 +3139,7 @@ async function estimateProfileTx(){
     showStatus(st,`${outputs.length} outputs · ${(outputs.length*AMOUNT_PER).toFixed(8)} tBTC + fee`,'good');
   }catch(e){showStatus(st,e.message||'Error','danger');}
 }
-async function buildProTxPlan(){
+async function buildProTxPlan(transferAddr){
   if(!S.priv||!S.addr) throw new Error('Unlock wallet first');
   const urn=norm($('peUrn')?.value||'');
   if(!urn) throw new Error('Handle is required');
@@ -3124,7 +3159,8 @@ async function buildProTxPlan(){
     fnm:norm($('peFnm')?.value||''),mnm:norm($('peMnm')?.value||''),lnm:norm($('peLnm')?.value||''),sfx:norm($('peSfx')?.value||''),
     bio:norm($('peBio')?.value||''),img,
     urls:collectKv('peUrlPairs'),loc:collectKv('peLocPairs'),
-    enableSec:$('peEnableSec')?.checked||false
+    enableSec:$('peEnableSec')?.checked||false,
+    transferAddr
   });
 }
 async function broadcastProfileTx(){
@@ -3168,6 +3204,56 @@ async function broadcastProfileTx(){
 
     setTimeout(()=>closeModal('modalProfileEdit'), 1500);
   }catch(e){showStatus(st,e.message||'Broadcast failed','danger');}
+}
+
+/* ═══════════════════════════════════════════════════
+   TRANSFER PROFILE
+═══════════════════════════════════════════════════ */
+function showTransferDialog() {
+  const modal = $('modalTransfer');
+  if(!modal) return;
+  $('transferAddress').value = '';
+  $('transferStep1').classList.remove('hidden');
+  $('transferStep2').classList.add('hidden');
+  const st = $('transferStatus');
+  if(st) { st.textContent = ''; st.classList.add('hidden'); }
+  modal.classList.remove('hidden');
+}
+
+function handleTransferNext() {
+  const addr = norm($('transferAddress').value);
+  const st = $('transferStatus');
+  if(!addr) {
+    showStatus(st, 'Please enter a target address', 'warn');
+    return;
+  }
+  // Optional: basic validation
+  if(addr === S.addr) {
+    showStatus(st, 'Cannot transfer to the same address', 'warn');
+    return;
+  }
+  st.classList.add('hidden');
+  $('transferConfirmAddr').textContent = addr;
+  $('transferStep1').classList.add('hidden');
+  $('transferStep2').classList.remove('hidden');
+}
+
+async function confirmTransfer() {
+  const addr = norm($('transferAddress').value);
+  const st = $('transferStatus');
+  showStatus(st, 'Building transaction…', 'info');
+  try {
+    const outputs = await buildProTxPlan(addr);
+    showStatus(st, `Broadcasting transfer (${outputs.length} outputs)…`, 'info');
+    const txid = await broadcastTx(outputs);
+    showStatus(st, `Profile transfer broadcast! txid: ${txid}`, 'good');
+    setTimeout(() => {
+      closeModal('modalTransfer');
+      closeModal('modalProfileEdit');
+    }, 2000);
+  } catch(e) {
+    showStatus(st, e.message || 'Transfer failed', 'danger');
+  }
 }
 
 /* ═══════════════════════════════════════════════════
@@ -4253,6 +4339,9 @@ window.generateKey=generateKey;
 window.importWallet=importWallet;
 window.unlockWallet=unlockWallet;
 window.exportWif=exportWif;
+window.showTransferDialog=showTransferDialog;
+window.handleTransferNext=handleTransferNext;
+window.confirmTransfer=confirmTransfer;
 window.lockWallet=lockWallet;
 window.forgetWallet=forgetWallet;
 window.addKvRow=addKvRow;
