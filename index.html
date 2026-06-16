@@ -3041,9 +3041,15 @@ async function checkProfileHandle(){
   showStatus(st,'Checking…','info');
   try{
     const found=await fetchProfileByURN(urn);
-    if(!found?.addr){S.handleCheck={urn,ok:true};setChip($('peHandleBadge'),'Available','good');showStatus(st,`@${urn} is available`,'good');}
-    else if(found.addr===S.addr){S.handleCheck={urn,ok:true};setChip($('peHandleBadge'),'Yours','good');showStatus(st,`@${urn} is yours`,'good');if(transBtn) transBtn.disabled = false;}
-    else{S.handleCheck={urn,ok:false};setChip($('peHandleBadge'),'Taken','danger');showStatus(st,`@${urn} is taken by ${found.addr}`,'danger');}
+    if(!found?.addr){
+      S.handleCheck={urn,ok:true};setChip($('peHandleBadge'),'Available','good');showStatus(st,`@${urn} is available`,'good');
+    }
+    else if(found.addr===S.addr || (found.creators && found.creators.includes(S.addr)) || (found.cre && found.cre.includes(S.addr))){
+      S.handleCheck={urn,ok:true};setChip($('peHandleBadge'),'Yours','good');showStatus(st,`@${urn} is yours`,'good');if(transBtn) transBtn.disabled = false;
+    }
+    else{
+      S.handleCheck={urn,ok:false};setChip($('peHandleBadge'),'Taken','danger');showStatus(st,`@${urn} is taken by ${found.addr}`,'danger');
+    }
   }catch(e){S.handleCheck=null;setChip($('peHandleBadge'),'Unknown','warn');showStatus(st,`Error: ${e.message}`,'warn');}
 }
 async function validateProfileImage(){
