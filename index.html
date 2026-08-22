@@ -673,7 +673,7 @@ const AMOUNT_PER = DUST / 1e8;
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const DELIMITERS = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
 const CID_RE = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[1-9A-HJ-NP-Za-km-z]{20,})$/i;
-const IPFS_GWS = ['https://ipfs.io/ipfs/','https://dweb.link/ipfs/','https://w3s.link/ipfs/'];
+const IPFS_GWS = ['https://gateway.pinata.cloud/ipfs/','https://4everland.io/ipfs/','https://ipfs.filebase.io/ipfs/','https://hardbin.com/ipfs/'];
 const IPFS_PATH_RE = /^\/?ipfs\/([a-zA-Z0-9]+)(?:\/(.*))?$/i;
 const UNSAFE_RE = /[^a-zA-Z0-9._-]/g;
 const IMG_RE = /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i;
@@ -1620,12 +1620,13 @@ function extractUploadCid(payload){
   return '';
 }
 async function waitForIpfsIo(cid,path='',tries=8,gapMs=2500){
-  const checkUrl=buildIpfsUrl(cid,path,0);
   for(let i=0;i<tries;i++){
-    try{
-      const r=await fetch(checkUrl,{method:'HEAD',cache:'no-store'});
-      if(r.ok) return true;
-    }catch{}
+    for(let gi=0;gi<IPFS_GWS.length;gi++){
+      try{
+        const r=await fetch(buildIpfsUrl(cid,path,gi),{method:'HEAD',cache:'no-store'});
+        if(r.ok) return true;
+      }catch{}
+    }
     if(i<tries-1) await new Promise(res=>setTimeout(res,gapMs));
   }
   return false;
@@ -3139,7 +3140,7 @@ async function uploadProfileImageFile(){
         const cands=profileImgCandidates(uploaded.canonical);
         img.src=cands[0]||uploaded.preview||uploaded.canonical;
       }
-      showStatus(st,`Preview ready on ipfs.io · Image set: ${uploaded.canonical.slice(0,80)}`,'good');
+      showStatus(st,`Preview ready on IPFS · Image set: ${uploaded.canonical.slice(0,80)}`,'good');
     }
   }catch(e){
     if(st) showStatus(st,e.message||'Image upload failed','danger');
@@ -3475,7 +3476,7 @@ async function uploadComposeAttachmentFile(){
     const previewReady=await waitForIpfsIo(cid,fileName);
     if(previewReady){
       renderComposeAttachments();
-      showStatus(st,`Preview ready on ipfs.io · Attached: ${canonical.slice(0,80)}`,'good');
+      showStatus(st,`Preview ready on IPFS · Attached: ${canonical.slice(0,80)}`,'good');
     }
   }catch(e){
     if(st) showStatus(st,e.message||'Upload failed','danger');
