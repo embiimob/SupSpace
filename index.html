@@ -186,6 +186,11 @@
 
     /* ── RIGHT SIDEBAR ── */
     .r-sidebar{padding:12px 16px;position:sticky;top:0;height:100vh;overflow-y:auto;scrollbar-width:thin}
+    .r-sidebar,#trendingContent,#mobileTrendingContent{scrollbar-width:thin;scrollbar-color:#4a4f58 #0f1116}
+    .r-sidebar::-webkit-scrollbar,#trendingContent::-webkit-scrollbar,#mobileTrendingContent::-webkit-scrollbar{width:10px;height:10px}
+    .r-sidebar::-webkit-scrollbar-track,#trendingContent::-webkit-scrollbar-track,#mobileTrendingContent::-webkit-scrollbar-track{background:#0f1116;border-radius:9999px}
+    .r-sidebar::-webkit-scrollbar-thumb,#trendingContent::-webkit-scrollbar-thumb,#mobileTrendingContent::-webkit-scrollbar-thumb{background:#4a4f58;border-radius:9999px;border:2px solid #0f1116}
+    .r-sidebar::-webkit-scrollbar-thumb:hover,#trendingContent::-webkit-scrollbar-thumb:hover,#mobileTrendingContent::-webkit-scrollbar-thumb:hover{background:#5c626d}
     .r-search-box{position:relative;margin-bottom:14px}
     .r-search-input{width:100%;background:#202327;border:1px solid transparent;border-radius:9999px;padding:10px 16px 10px 44px;color:var(--text);font:inherit;font-size:.93rem;transition:border-color .15s,background .15s}
     .r-search-input:focus{outline:none;background:var(--bg);border-color:var(--accent)}
@@ -3816,9 +3821,9 @@ async function renderSidebarList(){
     try{
       const res=await fetchJ(`${API_BASE}/GetKnownProfilesBySearchString?searchString=*&qty=200&skip=0&mainnet=false&showSystemFiles=false`,20000);
       rawList=Array.isArray(res)?res:(Array.isArray(res?.results)?res.results:[]);
-      // sort by newest first (CreatedDate is nested inside r.profile), then take top 12
+      // sort by newest first (CreatedDate is nested inside r.profile), then take top 20
       rawList.sort((a,b)=>new Date(b?.profile?.CreatedDate||0)-new Date(a?.profile?.CreatedDate||0));
-      rawList=rawList.slice(0,12);
+      rawList=rawList.slice(0,20);
     }catch(e){}
     if(token!==S.sidebarRenderToken) return;
     // Resolve full profiles (thumbnail, displayName, urn, official status) by address
@@ -3851,7 +3856,7 @@ async function renderSidebarList(){
           <div class="social-item-title">${esc(p?.displayName||shortAddr(addr))} ${unofficialBadge}</div>
           <div class="social-item-sub">${esc(p?.urn?`@${p.urn}`:shortAddr(addr))}</div>
         </div>
-        <button class="btn btn-out btn-sm" style="padding:3px 8px;font-size:.76rem;flex-shrink:0;" onclick="toggleFollowAddr('${esc(addr)}')">${S.followed.has(addr)?'Followed':'Follow'}</button>`;
+        <button class="btn btn-sm ${S.followed.has(addr)?'btn-out':'btn-acc'}" data-social-action="follow" data-addr="${esc(addr)}" style="padding:3px 8px;font-size:.76rem;flex-shrink:0;" onclick="toggleFollowAddr('${esc(addr)}')">${S.followed.has(addr)?'Followed':'Follow'}</button>`;
       tc.appendChild(el);
     });
     syncMobileSidebarList();
@@ -3984,7 +3989,7 @@ window.toggleFollowAddr=function(addr){
   clearForYouCache();
   saveSocialState();
   syncProfileSocialButtons(addr);
-  renderSidebarList();
+  if(S.sidebarMode!=='newUsers') renderSidebarList();
   if(added){
     refreshCommunityCache({force:true}).then(()=>{if(S.view==='community') loadCommunityFeed();}).catch(()=>{});
     return;
