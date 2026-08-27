@@ -185,7 +185,7 @@
     @keyframes spin{to{transform:rotate(360deg)}}
 
     /* ── RIGHT SIDEBAR ── */
-    .r-sidebar{padding:12px 16px;position:sticky;top:0;height:100vh;overflow-y:auto}
+    .r-sidebar{padding:12px 16px;position:sticky;top:0;height:100vh;overflow-y:auto;scrollbar-width:thin}
     .r-search-box{position:relative;margin-bottom:14px}
     .r-search-input{width:100%;background:#202327;border:1px solid transparent;border-radius:9999px;padding:10px 16px 10px 44px;color:var(--text);font:inherit;font-size:.93rem;transition:border-color .15s,background .15s}
     .r-search-input:focus{outline:none;background:var(--bg);border-color:var(--accent)}
@@ -3842,14 +3842,14 @@ async function renderSidebarList(){
     profiles.forEach(({addr,p})=>{
       const el=document.createElement('div');
       el.className='social-item';
-      el.style.cssText='flex-wrap:wrap;gap:6px 10px;';
+      el.style.cssText='padding:4px 0;gap:8px;';
       el.innerHTML=`
-        <img ${profileImgAttrs(p?.image||'')} style="width:36px;height:36px;border-radius:50%;object-fit:cover;background:#222;" alt="">
-        <div class="social-item-main" onclick="openUserProfile('${esc(p?.urn||addr)}')" style="cursor:pointer;">
-          <div class="social-item-title">${esc(p?.displayName||shortAddr(addr))} <span class="chip" style="font-size:.65rem;padding:1px 5px;vertical-align:middle;" title="Not an official account">unofficial</span></div>
-          <div class="social-item-sub">${esc(p?.urn?`@${p.urn}`:addr)}</div>
+        <img ${profileImgAttrs(p?.image||'')} style="width:32px;height:32px;border-radius:50%;object-fit:cover;background:#222;flex-shrink:0;" alt="">
+        <div class="social-item-main" onclick="openUserProfile('${esc(p?.urn||addr)}')" style="cursor:pointer;min-width:0;flex:1;">
+          <div class="social-item-title">${esc(p?.displayName||shortAddr(addr))}</div>
+          <div class="social-item-sub">${esc(p?.urn?`@${p.urn}`:shortAddr(addr))}</div>
         </div>
-        <button class="btn btn-out btn-sm" style="padding:4px 8px;font-size:.78rem;" onclick="toggleFollowAddr('${esc(addr)}')">${S.followed.has(addr)?'Followed':'Follow'}</button>`;
+        <button class="btn btn-out btn-sm" style="padding:3px 8px;font-size:.76rem;flex-shrink:0;" onclick="toggleFollowAddr('${esc(addr)}')">${S.followed.has(addr)?'Followed':'Follow'}</button>`;
       tc.appendChild(el);
     });
     syncMobileSidebarList();
