@@ -3821,7 +3821,7 @@ async function renderSidebarList(){
       rawList=rawList.slice(0,12);
     }catch(e){}
     if(token!==S.sidebarRenderToken) return;
-    // Resolve full profiles (thumbnail, displayName, urn) by address
+    // Resolve full profiles (thumbnail, displayName, urn, official status) by address
     const resolved=await Promise.all(rawList.map(async r=>{
       const addr=r?.addr||r?.address||'';
       if(!addr) return null;
@@ -3833,20 +3833,22 @@ async function renderSidebarList(){
         displayName:r?.profile?.DisplayName||'',
         image:r?.profile?.Image||''
       };
-      return{addr,p:fallback};
+      const official=await isOfficial(fallback).catch(()=>true);
+      return{addr,p:fallback,official};
     }));
     if(token!==S.sidebarRenderToken) return;
     const profiles=resolved.filter(Boolean);
     clr(tc);
     if(!profiles.length){tc.innerHTML='<div class="trend-n">No new users found</div>';syncMobileSidebarList();return;}
-    profiles.forEach(({addr,p})=>{
+    profiles.forEach(({addr,p,official})=>{
+      const unofficialBadge=!official?`<span class="chip" style="font-size:.62rem;padding:1px 5px;vertical-align:middle;" title="Not an official account">unofficial</span>`:'';
       const el=document.createElement('div');
       el.className='social-item';
       el.style.cssText='padding:4px 0;gap:8px;';
       el.innerHTML=`
         <img ${profileImgAttrs(p?.image||'')} style="width:32px;height:32px;border-radius:50%;object-fit:cover;background:#222;flex-shrink:0;" alt="">
         <div class="social-item-main" onclick="openUserProfile('${esc(p?.urn||addr)}')" style="cursor:pointer;min-width:0;flex:1;">
-          <div class="social-item-title">${esc(p?.displayName||shortAddr(addr))}</div>
+          <div class="social-item-title">${esc(p?.displayName||shortAddr(addr))} ${unofficialBadge}</div>
           <div class="social-item-sub">${esc(p?.urn?`@${p.urn}`:shortAddr(addr))}</div>
         </div>
         <button class="btn btn-out btn-sm" style="padding:3px 8px;font-size:.76rem;flex-shrink:0;" onclick="toggleFollowAddr('${esc(addr)}')">${S.followed.has(addr)?'Followed':'Follow'}</button>`;
