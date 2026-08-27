@@ -3816,9 +3816,9 @@ async function renderSidebarList(){
     try{
       const res=await fetchJ(`${API_BASE}/GetKnownProfilesBySearchString?searchString=*&qty=200&skip=0&mainnet=false&showSystemFiles=false`,20000);
       rawList=Array.isArray(res)?res:(Array.isArray(res?.results)?res.results:[]);
-      // sort by newest first (CreatedDate is nested inside r.profile), then take top 12
+      // sort by newest first (CreatedDate is nested inside r.profile), then take top 20
       rawList.sort((a,b)=>new Date(b?.profile?.CreatedDate||0)-new Date(a?.profile?.CreatedDate||0));
-      rawList=rawList.slice(0,12);
+      rawList=rawList.slice(0,20);
     }catch(e){}
     if(token!==S.sidebarRenderToken) return;
     // Resolve full profiles (thumbnail, displayName, urn, official status) by address
@@ -3851,7 +3851,7 @@ async function renderSidebarList(){
           <div class="social-item-title">${esc(p?.displayName||shortAddr(addr))} ${unofficialBadge}</div>
           <div class="social-item-sub">${esc(p?.urn?`@${p.urn}`:shortAddr(addr))}</div>
         </div>
-        <button class="btn btn-out btn-sm" style="padding:3px 8px;font-size:.76rem;flex-shrink:0;" onclick="toggleFollowAddr('${esc(addr)}')">${S.followed.has(addr)?'Followed':'Follow'}</button>`;
+        <button class="btn btn-sm ${S.followed.has(addr)?'btn-out':'btn-acc'}" data-social-action="follow" data-addr="${esc(addr)}" style="padding:3px 8px;font-size:.76rem;flex-shrink:0;" onclick="toggleFollowAddr('${esc(addr)}')">${S.followed.has(addr)?'Followed':'Follow'}</button>`;
       tc.appendChild(el);
     });
     syncMobileSidebarList();
@@ -3984,7 +3984,7 @@ window.toggleFollowAddr=function(addr){
   clearForYouCache();
   saveSocialState();
   syncProfileSocialButtons(addr);
-  renderSidebarList();
+  if(S.sidebarMode!=='newUsers') renderSidebarList();
   if(added){
     refreshCommunityCache({force:true}).then(()=>{if(S.view==='community') loadCommunityFeed();}).catch(()=>{});
     return;
