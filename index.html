@@ -250,7 +250,7 @@
     .cm-submit{padding:8px 20px;border-radius:9999px;background:var(--accent);color:#fff;font-weight:700;font-size:.93rem;border:none;transition:background .15s}
     .cm-submit:hover{background:var(--accent-h)}
     .cm-submit:disabled{opacity:.5;cursor:not-allowed}
-    .cm-status{font-size:.82rem;color:var(--muted)}
+    .cm-status{font-size:.82rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;}
 
     /* ── FORMS ── */
     .f-field{margin-bottom:14px}
@@ -3505,6 +3505,15 @@ async function resolveExtraRecipients(){
     if(!TXID_RE.test(txid)) throw new Error('Reply txid must be 64 hex chars');
     recs.add(await kwAddr(txid));
   }
+  // retweet attachments — each bare txid needs its keyword address so the
+  // retweet is counted in the post's thread
+  for(const tok of (S.composeAttachments||[])){
+    const info=attachmentPreviewCandidates(tok);
+    if(info.kind==='retweet'){
+      const rtTx=norm(tok).toLowerCase();
+      if(TXID_RE.test(rtTx)) recs.add(await kwAddr(rtTx));
+    }
+  }
   return [...recs];
 }
 function buildMessageText(){
@@ -3514,7 +3523,7 @@ async function submitCompose(){
   if(!S.priv||!S.addr){alert('Unlock your wallet first');return;}
   const st=$('cmStatus'),btn=$('cmSubmit');
   const text=buildMessageText();
-  if(!norm(text)){if(st)st.textContent='Write something first';return;}
+  if(!norm(text)&&!S.composeAttachments?.length){if(st)st.textContent='Write something first';return;}
   if(btn)btn.disabled=true;
   if(st)st.textContent='Building…';
   try{
