@@ -186,6 +186,11 @@
 
     /* ── RIGHT SIDEBAR ── */
     .r-sidebar{padding:12px 16px;position:sticky;top:0;height:100vh;overflow-y:auto;scrollbar-width:thin}
+    .r-sidebar,#trendingContent,#mobileTrendingContent{scrollbar-width:thin;scrollbar-color:#4a4f58 #0f1116}
+    .r-sidebar::-webkit-scrollbar,#trendingContent::-webkit-scrollbar,#mobileTrendingContent::-webkit-scrollbar{width:10px;height:10px}
+    .r-sidebar::-webkit-scrollbar-track,#trendingContent::-webkit-scrollbar-track,#mobileTrendingContent::-webkit-scrollbar-track{background:#0f1116;border-radius:9999px}
+    .r-sidebar::-webkit-scrollbar-thumb,#trendingContent::-webkit-scrollbar-thumb,#mobileTrendingContent::-webkit-scrollbar-thumb{background:#4a4f58;border-radius:9999px;border:2px solid #0f1116}
+    .r-sidebar::-webkit-scrollbar-thumb:hover,#trendingContent::-webkit-scrollbar-thumb:hover,#mobileTrendingContent::-webkit-scrollbar-thumb:hover{background:#5c626d}
     .r-search-box{position:relative;margin-bottom:14px}
     .r-search-input{width:100%;background:#202327;border:1px solid transparent;border-radius:9999px;padding:10px 16px 10px 44px;color:var(--text);font:inherit;font-size:.93rem;transition:border-color .15s,background .15s}
     .r-search-input:focus{outline:none;background:var(--bg);border-color:var(--accent)}
