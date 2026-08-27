@@ -3814,8 +3814,11 @@ async function renderSidebarList(){
     syncMobileSidebarList();
     let rawList=[];
     try{
-      const res=await fetchJ(`${BITFOSSIL_BASE}/GetKnownProfilesBySearchString?searchString=*&qty=10&skip=0&mainnet=false&showSystemFiles=false`,20000);
+      const res=await fetchJ(`${API_BASE}/GetKnownProfilesBySearchString?searchString=*&qty=200&skip=0&mainnet=false&showSystemFiles=false`,20000);
       rawList=Array.isArray(res)?res:(Array.isArray(res?.results)?res.results:[]);
+      // sort by newest first, then take top 20
+      rawList.sort((a,b)=>new Date(b?.createdDate||b?.CreatedDate||0)-new Date(a?.createdDate||a?.CreatedDate||0));
+      rawList=rawList.slice(0,20);
     }catch(e){}
     if(token!==S.sidebarRenderToken) return;
     // Resolve full profiles (thumbnail, displayName, urn) by address
