@@ -3816,9 +3816,9 @@ async function renderSidebarList(){
     try{
       const res=await fetchJ(`${API_BASE}/GetKnownProfilesBySearchString?searchString=*&qty=200&skip=0&mainnet=false&showSystemFiles=false`,20000);
       rawList=Array.isArray(res)?res:(Array.isArray(res?.results)?res.results:[]);
-      // sort by newest first, then take top 20
-      rawList.sort((a,b)=>new Date(b?.createdDate||b?.CreatedDate||0)-new Date(a?.createdDate||a?.CreatedDate||0));
-      rawList=rawList.slice(0,20);
+      // sort by newest first (CreatedDate is nested inside r.profile), then take top 12
+      rawList.sort((a,b)=>new Date(b?.profile?.CreatedDate||0)-new Date(a?.profile?.CreatedDate||0));
+      rawList=rawList.slice(0,12);
     }catch(e){}
     if(token!==S.sidebarRenderToken) return;
     // Resolve full profiles (thumbnail, displayName, urn) by address
@@ -3826,7 +3826,14 @@ async function renderSidebarList(){
       const addr=r?.addr||r?.address||'';
       if(!addr) return null;
       const p=await fetchProfileByAddr(addr).catch(()=>null);
-      return{addr,p:p||r};
+      // If API lookup fails, build a minimal profile from the nested r.profile fields
+      const fallback=p||{
+        addr,
+        urn:r?.profile?.URN||'',
+        displayName:r?.profile?.DisplayName||'',
+        image:r?.profile?.Image||''
+      };
+      return{addr,p:fallback};
     }));
     if(token!==S.sidebarRenderToken) return;
     const profiles=resolved.filter(Boolean);
