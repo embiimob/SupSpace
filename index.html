@@ -404,10 +404,10 @@
       </div>
       <div class="mobile-social-card">
         <div class="sidebar-card-title" id="mobileSidebarListTitle">Following / Friends</div>
-        <div class="btn-row" style="margin-bottom:8px;">
-          <button class="btn btn-out btn-sm" onclick="setSidebarMode('trending')">Trending</button>
-          <button class="btn btn-out btn-sm" onclick="setSidebarMode('follows')">Following</button>
-          <button class="btn btn-out btn-sm" onclick="setSidebarMode('newUsers')">New Users</button>
+        <div class="btn-row" style="margin-bottom:8px;flex-wrap:nowrap;">
+          <button class="btn btn-out btn-sm" style="padding:4px 8px;font-size:.78rem;" onclick="setSidebarMode('trending')">Trending</button>
+          <button class="btn btn-out btn-sm" style="padding:4px 8px;font-size:.78rem;" onclick="setSidebarMode('follows')">Following</button>
+          <button class="btn btn-out btn-sm" style="padding:4px 8px;font-size:.78rem;" onclick="setSidebarMode('newUsers')">New Users</button>
         </div>
         <div id="mobileTrendingContent"><div class="trend-n">Loading…</div></div>
       </div>
@@ -442,10 +442,10 @@
     </div>
     <div class="sidebar-card">
       <div class="sidebar-card-title" id="sidebarListTitle">Trending</div>
-      <div class="btn-row" style="margin-bottom:8px;">
-        <button class="btn btn-out btn-sm" onclick="setSidebarMode('trending')">Trending</button>
-        <button class="btn btn-out btn-sm" onclick="setSidebarMode('follows')">Following</button>
-        <button class="btn btn-out btn-sm" onclick="setSidebarMode('newUsers')">New Users</button>
+      <div class="btn-row" style="margin-bottom:8px;flex-wrap:nowrap;">
+        <button class="btn btn-out btn-sm" style="padding:4px 8px;font-size:.78rem;" onclick="setSidebarMode('trending')">Trending</button>
+        <button class="btn btn-out btn-sm" style="padding:4px 8px;font-size:.78rem;" onclick="setSidebarMode('follows')">Following</button>
+        <button class="btn btn-out btn-sm" style="padding:4px 8px;font-size:.78rem;" onclick="setSidebarMode('newUsers')">New Users</button>
       </div>
       <div id="trendingContent"><div class="trend-n">Loading…</div></div>
     </div>
@@ -3803,25 +3803,34 @@ async function renderSidebarList(){
     clr(tc);
     tc.innerHTML='<div class="trend-n">Loading…</div>';
     syncMobileSidebarList();
-    let profiles=[];
+    let rawList=[];
     try{
-      const res=await fetchJ(`${API_BASE}/GetKnownProfilesBySearchString?searchString=TBTC&qty=10&skip=0&mainnet=false`,20000);
-      profiles=Array.isArray(res)?res:(Array.isArray(res?.results)?res.results:[]);
+      const res=await fetchJ(`${BITFOSSIL_BASE}/GetKnownProfilesBySearchString?searchString=*&qty=10&skip=0&mainnet=false&showSystemFiles=false`,20000);
+      rawList=Array.isArray(res)?res:(Array.isArray(res?.results)?res.results:[]);
     }catch(e){}
     if(token!==S.sidebarRenderToken) return;
+    // Resolve full profiles (thumbnail, displayName, urn) by address
+    const resolved=await Promise.all(rawList.map(async r=>{
+      const addr=r?.addr||r?.address||'';
+      if(!addr) return null;
+      const p=await fetchProfileByAddr(addr).catch(()=>null);
+      return{addr,p:p||r};
+    }));
+    if(token!==S.sidebarRenderToken) return;
+    const profiles=resolved.filter(Boolean);
     clr(tc);
     if(!profiles.length){tc.innerHTML='<div class="trend-n">No new users found</div>';syncMobileSidebarList();return;}
-    profiles.forEach(p=>{
-      const addr=p?.addr||p?.address||'';
+    profiles.forEach(({addr,p})=>{
       const el=document.createElement('div');
       el.className='social-item';
+      el.style.cssText='flex-wrap:wrap;gap:6px 10px;';
       el.innerHTML=`
         <img ${profileImgAttrs(p?.image||'')} style="width:36px;height:36px;border-radius:50%;object-fit:cover;background:#222;" alt="">
         <div class="social-item-main" onclick="openUserProfile('${esc(p?.urn||addr)}')" style="cursor:pointer;">
-          <div class="social-item-title">${esc(p?.displayName||shortAddr(addr))}</div>
+          <div class="social-item-title">${esc(p?.displayName||shortAddr(addr))} <span class="chip" style="font-size:.65rem;padding:1px 5px;vertical-align:middle;" title="Not an official account">unofficial</span></div>
           <div class="social-item-sub">${esc(p?.urn?`@${p.urn}`:addr)}</div>
         </div>
-        <button class="btn btn-acc btn-sm" onclick="toggleFollowAddr('${esc(addr)}')">${S.followed.has(addr)?'Followed':'Follow'}</button>`;
+        <button class="btn btn-out btn-sm" style="padding:4px 8px;font-size:.78rem;" onclick="toggleFollowAddr('${esc(addr)}')">${S.followed.has(addr)?'Followed':'Follow'}</button>`;
       tc.appendChild(el);
     });
     syncMobileSidebarList();
