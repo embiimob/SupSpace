@@ -407,6 +407,7 @@
         <div class="btn-row" style="margin-bottom:8px;">
           <button class="btn btn-out btn-sm" onclick="setSidebarMode('trending')">Trending</button>
           <button class="btn btn-out btn-sm" onclick="setSidebarMode('follows')">Following</button>
+          <button class="btn btn-out btn-sm" onclick="setSidebarMode('newUsers')">New Users</button>
         </div>
         <div id="mobileTrendingContent"><div class="trend-n">Loading…</div></div>
       </div>
@@ -444,6 +445,7 @@
       <div class="btn-row" style="margin-bottom:8px;">
         <button class="btn btn-out btn-sm" onclick="setSidebarMode('trending')">Trending</button>
         <button class="btn btn-out btn-sm" onclick="setSidebarMode('follows')">Following</button>
+        <button class="btn btn-out btn-sm" onclick="setSidebarMode('newUsers')">New Users</button>
       </div>
       <div id="trendingContent"><div class="trend-n">Loading…</div></div>
     </div>
@@ -3796,6 +3798,35 @@ async function renderSidebarList(){
   if(!tc||!title) return;
   const token=++S.sidebarRenderToken;
   if(S.sidebarMode==='trending'){title.textContent='Trending';await loadTrending((S.communityCache?.posts||[]).map(asRoot).filter(Boolean));syncMobileSidebarList();return;}
+  if(S.sidebarMode==='newUsers'){
+    title.textContent='New Users';
+    clr(tc);
+    tc.innerHTML='<div class="trend-n">Loading…</div>';
+    syncMobileSidebarList();
+    let profiles=[];
+    try{
+      const res=await fetchJ(`${API_BASE}/GetKnownProfilesBySearchString?searchString=TBTC&qty=10&skip=0&mainnet=false`,20000);
+      profiles=Array.isArray(res)?res:(Array.isArray(res?.results)?res.results:[]);
+    }catch(e){}
+    if(token!==S.sidebarRenderToken) return;
+    clr(tc);
+    if(!profiles.length){tc.innerHTML='<div class="trend-n">No new users found</div>';syncMobileSidebarList();return;}
+    profiles.forEach(p=>{
+      const addr=p?.addr||p?.address||'';
+      const el=document.createElement('div');
+      el.className='social-item';
+      el.innerHTML=`
+        <img ${profileImgAttrs(p?.image||'')} style="width:36px;height:36px;border-radius:50%;object-fit:cover;background:#222;" alt="">
+        <div class="social-item-main" onclick="openUserProfile('${esc(p?.urn||addr)}')" style="cursor:pointer;">
+          <div class="social-item-title">${esc(p?.displayName||shortAddr(addr))}</div>
+          <div class="social-item-sub">${esc(p?.urn?`@${p.urn}`:addr)}</div>
+        </div>
+        <button class="btn btn-acc btn-sm" onclick="toggleFollowAddr('${esc(addr)}')">${S.followed.has(addr)?'Followed':'Follow'}</button>`;
+      tc.appendChild(el);
+    });
+    syncMobileSidebarList();
+    return;
+  }
   const addrs=S.sidebarMode==='blocked'?[...S.blocked]:[...S.followed];
   title.textContent=S.sidebarMode==='blocked'?'Blocked addresses':'Following / Friends';
   clr(tc);
