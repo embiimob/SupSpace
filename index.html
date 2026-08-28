@@ -1571,6 +1571,33 @@ async function buildProOutputs({urn,fnm,mnm,lnm,sfx,bio,img,urls,loc,enableSec,t
 /* ═══════════════════════════════════════════════════
    IPFS / ATTACHMENT HELPERS
 ═══════════════════════════════════════════════════ */
+function encB32(data) {
+  const B32 = 'abcdefghijklmnopqrstuvwxyz234567';
+  let bits = 0, value = 0, out = '';
+  for (let i = 0; i < data.length; i++) {
+    value = (value << 8) | data[i];
+    bits += 8;
+    while (bits >= 5) {
+      out += B32[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) out += B32[(value << (5 - bits)) & 31];
+  return out;
+}
+function cidV0ToV1(cid) {
+  if (typeof cid !== 'string' || !cid.startsWith('Qm')) return cid;
+  try {
+    const b58 = decB58(cid);
+    const b32Input = new Uint8Array(2 + b58.length);
+    b32Input[0] = 0x01;
+    b32Input[1] = 0x70;
+    b32Input.set(b58, 2);
+    return 'b' + encB32(b32Input);
+  } catch (e) {
+    return cid;
+  }
+}
 function buildIpfsUrl(cid,path='',gi=0){const gw=IPFS_GWS[Math.abs(gi)%IPFS_GWS.length];return`${gw}${cid}${path?`/${path.replace(/^\/+/,'')}`:''}`;}
 function extractIpfsParts(v){
   const input=norm(v);if(!input) return null;
@@ -1649,12 +1676,20 @@ function attachmentPreviewCandidates(token){
   }
   const ipfs=extractIpfsParts(t);
   if(ipfs?.cid){
-    const urls=[buildIpfsUrl(ipfs.cid,'',0)];
-    if(ipfs.path) urls.push(buildIpfsUrl(ipfs.cid,ipfs.path,0));
-    for(let i=1;i<IPFS_GWS.length;i++){
-      urls.push(buildIpfsUrl(ipfs.cid,'',i));
-      if(ipfs.path) urls.push(buildIpfsUrl(ipfs.cid,ipfs.path,i));
+    const urls=[];
+    const v1Cid = cidV0ToV1(ipfs.cid);
+
+    // 1. Try CIDv1 without path on all gateways first
+    IPFS_GWS.forEach((gw,gi)=>urls.push(buildIpfsUrl(v1Cid,'',gi)));
+    // 2. Try CIDv1 with path on all gateways
+    if(ipfs.path) IPFS_GWS.forEach((gw,gi)=>urls.push(buildIpfsUrl(v1Cid,ipfs.path,gi)));
+
+    // 3. Fallbacks using original CID (if it was v0)
+    if(v1Cid !== ipfs.cid) {
+      IPFS_GWS.forEach((gw,gi)=>urls.push(buildIpfsUrl(ipfs.cid,'',gi)));
+      if(ipfs.path) IPFS_GWS.forEach((gw,gi)=>urls.push(buildIpfsUrl(ipfs.cid,ipfs.path,gi)));
     }
+
     return{kind:mediaKindFromPath(ipfs.path),urls:[...new Set(urls)],raw:t};
   }
   const oc=t.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})(?:[\\/]([^<>]+))?$/);
@@ -1694,10 +1729,19 @@ function profileImgCandidates(ref){
   const ipfs=extractIpfsParts(v);
   if(ipfs?.cid){
     const cands=[];
-    // Try CID-only on each gateway first (like SupTV / SupRadio)
-    IPFS_GWS.forEach((gw,gi)=>cands.push(buildIpfsUrl(ipfs.cid,'',gi)));
-    // Then CID+path on each gateway (if path is present)
-    if(ipfs.path) IPFS_GWS.forEach((gw,gi)=>cands.push(buildIpfsUrl(ipfs.cid,ipfs.path,gi)));
+    const v1Cid = cidV0ToV1(ipfs.cid);
+
+    // 1. Try CIDv1-only on each gateway first
+    IPFS_GWS.forEach((gw,gi)=>cands.push(buildIpfsUrl(v1Cid,'',gi)));
+    // 2. Then CIDv1+path on each gateway
+    if(ipfs.path) IPFS_GWS.forEach((gw,gi)=>cands.push(buildIpfsUrl(v1Cid,ipfs.path,gi)));
+
+    // 3. Fallbacks using original CID (if it was v0)
+    if(v1Cid !== ipfs.cid) {
+      IPFS_GWS.forEach((gw,gi)=>cands.push(buildIpfsUrl(ipfs.cid,'',gi)));
+      if(ipfs.path) IPFS_GWS.forEach((gw,gi)=>cands.push(buildIpfsUrl(ipfs.cid,ipfs.path,gi)));
+    }
+
     return cands;
   }
   const oc=v.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})[\\/]([^<>]+)$/);
