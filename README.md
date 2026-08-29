@@ -122,7 +122,7 @@ In `index.html`, adjust:
 
 - `API_BASE` (default: `https://p2fk.io`)
 - `MEMPOOL_API` (default: `https://mempool.space/testnet/api`)
-- `IPFS_GWS` (gateway list used for media resolution/verification)
+- `IPFS_GWS` (gateway list used for media resolution/verification; Filebase is primary)
 
 ## Security and usage notes
 

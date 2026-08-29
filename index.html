@@ -680,7 +680,7 @@ const AMOUNT_PER = DUST / 1e8;
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const DELIMITERS = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
 const CID_RE = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[1-9A-HJ-NP-Za-km-z]{20,})$/i;
-const IPFS_GWS = ['https://ipfs.filebase.io/ipfs/','https://dweb.link/ipfs/','https://w3s.link/ipfs/','https://gateway.pinata.cloud/ipfs/'];
+const IPFS_GWS = ['https://ipfs.filebase.io/ipfs/'];
 const IPFS_PATH_RE = /^\/?ipfs\/([a-zA-Z0-9]+)(?:\/(.*))?$/i;
 const UNSAFE_RE = /[^a-zA-Z0-9._-]/g;
 const IMG_RE = /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i;
@@ -1572,6 +1572,18 @@ async function buildProOutputs({urn,fnm,mnm,lnm,sfx,bio,img,urls,loc,enableSec,t
    IPFS / ATTACHMENT HELPERS
 ═══════════════════════════════════════════════════ */
 function buildIpfsUrl(cid,path='',gi=0){const gw=IPFS_GWS[Math.abs(gi)%IPFS_GWS.length];return`${gw}${cid}${path?`/${path.replace(/^\/+/,'')}`:''}`;}
+function buildInbrowserCidUrl(cid){
+  const c=norm(cid);
+  if(!/^bafy/i.test(c)) return '';
+  return `https://${c}.ipfs.inbrowser.link/`;
+}
+function cidGatewayCandidates(cid){
+  const urls=[];
+  for(let gi=0;gi<IPFS_GWS.length;gi++) urls.push(buildIpfsUrl(cid,'',gi));
+  const inbrowser=buildInbrowserCidUrl(cid);
+  if(inbrowser) urls.push(inbrowser);
+  return [...new Set(urls.filter(Boolean))];
+}
 function extractIpfsParts(v){
   const input=norm(v);if(!input) return null;
   if(/^ipfs:/i.test(input)){const b=input.replace(/^ipfs:/i,'').replace(/^\/+/,'');const[cr,...ps]=b.split(/[\\/]+/).filter(Boolean);const cid=norm(cr||'');return CID_RE.test(cid)?{cid,path:ps.join('/')}:null;}
@@ -1627,10 +1639,11 @@ function extractUploadCid(payload){
   return '';
 }
 async function waitForIpfsIo(cid,tries=8,gapMs=2500){
+  const urls=cidGatewayCandidates(cid);
   for(let i=0;i<tries;i++){
-    for(let gi=0;gi<IPFS_GWS.length;gi++){
+    for(const url of urls){
       try{
-        const r=await fetch(buildIpfsUrl(cid,'',gi),{method:'HEAD',cache:'no-store'});
+        const r=await fetch(url,{method:'HEAD',cache:'no-store'});
         if(r.ok) return true;
       }catch{}
     }
@@ -1649,10 +1662,7 @@ function attachmentPreviewCandidates(token){
   }
   const ipfs=extractIpfsParts(t);
   if(ipfs?.cid){
-    const urls=[buildIpfsUrl(ipfs.cid,'',0)];
-    for(let i=1;i<IPFS_GWS.length;i++){
-      urls.push(buildIpfsUrl(ipfs.cid,'',i));
-    }
+    const urls=cidGatewayCandidates(ipfs.cid);
     return{kind:mediaKindFromPath(ipfs.path),urls:[...new Set(urls)],raw:t};
   }
   const oc=t.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})(?:[\\/]([^<>]+))?$/);
@@ -1685,16 +1695,13 @@ window.media_fallback=function(el){
     else el.removeAttribute('onerror');
   }
 };
-// Returns ordered candidate URLs for a profile image (CID-only on each gateway)
+// Returns ordered candidate URLs for a profile image (CID-only, Filebase first)
 function profileImgCandidates(ref){
   const v=norm(ref);if(!v) return [];
   if(/^https?:\/\//i.test(v)) return [v];
   const ipfs=extractIpfsParts(v);
   if(ipfs?.cid){
-    const cands=[];
-    // Sup IPFS URNs resolve from CID root, so only try CID-based URLs
-    IPFS_GWS.forEach((gw,gi)=>cands.push(buildIpfsUrl(ipfs.cid,'',gi)));
-    return cands;
+    return cidGatewayCandidates(ipfs.cid);
   }
   const oc=v.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})[\\/]([^<>]+)$/);
   if(oc) return[onchainFileUrl(oc[2],oc[3])];
