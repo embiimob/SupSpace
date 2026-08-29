@@ -680,7 +680,7 @@ const AMOUNT_PER = DUST / 1e8;
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const DELIMITERS = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
 const CID_RE = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[1-9A-HJ-NP-Za-km-z]{20,})$/i;
-const IPFS_GWS = ['https://ipfs.filebase.io/ipfs/'];
+const IPFS_GWS = ['https://ipfs.filebase.io/ipfs/','https://gateway.pinata.cloud/ipfs/'];
 const IPFS_PATH_RE = /^\/?ipfs\/([a-zA-Z0-9]+)(?:\/(.*))?$/i;
 const UNSAFE_RE = /[^a-zA-Z0-9._-]/g;
 const IMG_RE = /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i;
@@ -1572,9 +1572,34 @@ async function buildProOutputs({urn,fnm,mnm,lnm,sfx,bio,img,urls,loc,enableSec,t
    IPFS / ATTACHMENT HELPERS
 ═══════════════════════════════════════════════════ */
 function buildIpfsUrl(cid,path='',gi=0){const gw=IPFS_GWS[Math.abs(gi)%IPFS_GWS.length];return`${gw}${cid}${path?`/${path.replace(/^\/+/,'')}`:''}`;}
-function buildInbrowserCidUrl(cid){
+const B32 = 'abcdefghijklmnopqrstuvwxyz234567';
+function encB32(bytes){
+  let out='',buf=0,bits=0;
+  for(const b of bytes){
+    buf=(buf<<8)|b;bits+=8;
+    while(bits>=5){out+=B32[(buf>>(bits-5))&31];bits-=5;}
+  }
+  if(bits>0) out+=B32[(buf<<(5-bits))&31];
+  return out;
+}
+function cidToV1Base32(cid){
   const c=norm(cid);
-  if(!/^bafy/i.test(c)) return '';
+  if(!c) return '';
+  if(/^b[1-9a-z]+$/i.test(c)) return c.toLowerCase();
+  if(!/^Qm[1-9A-HJ-NP-Za-km-z]{44}$/.test(c)) return '';
+  try{
+    const mh=decB58(c);
+    if(mh.length<4||mh[0]!==0x12||mh[1]!==0x20) return '';
+    const v1=new Uint8Array(2+mh.length);
+    v1[0]=0x01; // cidv1
+    v1[1]=0x70; // dag-pb
+    v1.set(mh,2);
+    return `b${encB32(v1)}`;
+  }catch{return '';}
+}
+function buildInbrowserCidUrl(cid){
+  const c=cidToV1Base32(cid);
+  if(!c) return '';
   return `https://${c}.ipfs.inbrowser.link/`;
 }
 function cidGatewayCandidates(cid){
