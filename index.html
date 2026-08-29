@@ -680,7 +680,7 @@ const AMOUNT_PER = DUST / 1e8;
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const DELIMITERS = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
 const CID_RE = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[1-9A-HJ-NP-Za-km-z]{20,})$/i;
-const IPFS_GWS = ['https://gateway.pinata.cloud/ipfs/','https://4everland.io/ipfs/','https://ipfs.filebase.io/ipfs/','https://hardbin.com/ipfs/'];
+const IPFS_GWS = ['https://ipfs.filebase.io/ipfs/','https://gateway.pinata.cloud/ipfs/'];
 const IPFS_PATH_RE = /^\/?ipfs\/([a-zA-Z0-9]+)(?:\/(.*))?$/i;
 const UNSAFE_RE = /[^a-zA-Z0-9._-]/g;
 const IMG_RE = /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i;
@@ -1572,6 +1572,43 @@ async function buildProOutputs({urn,fnm,mnm,lnm,sfx,bio,img,urls,loc,enableSec,t
    IPFS / ATTACHMENT HELPERS
 ═══════════════════════════════════════════════════ */
 function buildIpfsUrl(cid,path='',gi=0){const gw=IPFS_GWS[Math.abs(gi)%IPFS_GWS.length];return`${gw}${cid}${path?`/${path.replace(/^\/+/,'')}`:''}`;}
+const B32 = 'abcdefghijklmnopqrstuvwxyz234567';
+function encB32(bytes){
+  let out='',buf=0,bits=0;
+  for(const b of bytes){
+    buf=(buf<<8)|b;bits+=8;
+    while(bits>=5){out+=B32[(buf>>(bits-5))&31];bits-=5;}
+  }
+  if(bits>0) out+=B32[(buf<<(5-bits))&31];
+  return out;
+}
+function cidToV1Base32(cid){
+  const c=norm(cid);
+  if(!c) return '';
+  if(/^b[1-9a-z]+$/i.test(c)) return c.toLowerCase();
+  if(!/^Qm[1-9A-HJ-NP-Za-km-z]{44}$/.test(c)) return '';
+  try{
+    const mh=decB58(c);
+    if(mh.length<4||mh[0]!==0x12||mh[1]!==0x20) return '';
+    const v1=new Uint8Array(2+mh.length);
+    v1[0]=0x01; // cidv1
+    v1[1]=0x70; // dag-pb
+    v1.set(mh,2);
+    return `b${encB32(v1)}`;
+  }catch{return '';}
+}
+function buildInbrowserCidUrl(cid){
+  const c=cidToV1Base32(cid);
+  if(!c) return '';
+  return `https://${c}.ipfs.inbrowser.link/`;
+}
+function cidGatewayCandidates(cid){
+  const urls=[];
+  for(let gi=0;gi<IPFS_GWS.length;gi++) urls.push(buildIpfsUrl(cid,'',gi));
+  const inbrowser=buildInbrowserCidUrl(cid);
+  if(inbrowser) urls.push(inbrowser);
+  return [...new Set(urls.filter(Boolean))];
+}
 function extractIpfsParts(v){
   const input=norm(v);if(!input) return null;
   if(/^ipfs:/i.test(input)){const b=input.replace(/^ipfs:/i,'').replace(/^\/+/,'');const[cr,...ps]=b.split(/[\\/]+/).filter(Boolean);const cid=norm(cr||'');return CID_RE.test(cid)?{cid,path:ps.join('/')}:null;}
@@ -1588,7 +1625,7 @@ function onchainFileUrl(txid,path=''){
 async function normalizeAttach(raw,{imgOnly=false}={}){
   const input=norm(raw);if(!input) throw new Error('Enter an attachment reference');
   const ipfs=extractIpfsParts(input);
-  if(ipfs?.cid){const sp=norm(ipfs.path||'').replace(/^\/+/,'').split('/').map(p=>p.replace(UNSAFE_RE,'')).filter(Boolean).join('/');const can=`IPFS:${ipfs.cid}${sp?`/${sp}`:''}`;const prev=buildIpfsUrl(ipfs.cid,sp);return{canonical:can,preview:prev,type:IMG_RE.test(sp)?'image':VID_RE.test(sp)?'video':AUD_RE.test(sp)?'audio':'file'};}
+  if(ipfs?.cid){const sp=norm(ipfs.path||'').replace(/^\/+/,'').split('/').map(p=>p.replace(UNSAFE_RE,'')).filter(Boolean).join('/');const can=`IPFS:${ipfs.cid}${sp?`/${sp}`:''}`;const prev=buildIpfsUrl(ipfs.cid,'');return{canonical:can,preview:prev,type:IMG_RE.test(sp)?'image':VID_RE.test(sp)?'video':AUD_RE.test(sp)?'audio':'file'};}
   const oc=normOnChain(input);
   if(oc){return{canonical:oc,preview:'',type:IMG_RE.test(oc)?'image':VID_RE.test(oc)?'video':AUD_RE.test(oc)?'audio':'file'};}
   if(/^https?:\/\//i.test(input)){const u=new URL(input);if(imgOnly&&!IMG_RE.test(u.pathname))throw new Error('Profile images must be IPFS, on-chain, or direct image URLs');return{canonical:u.toString(),preview:u.toString(),type:IMG_RE.test(u.pathname)?'image':VID_RE.test(u.pathname)?'video':AUD_RE.test(u.pathname)?'audio':'link'};}
@@ -1626,11 +1663,12 @@ function extractUploadCid(payload){
   }
   return '';
 }
-async function waitForIpfsIo(cid,path='',tries=8,gapMs=2500){
+async function waitForIpfsIo(cid,tries=8,gapMs=2500){
+  const urls=cidGatewayCandidates(cid);
   for(let i=0;i<tries;i++){
-    for(let gi=0;gi<IPFS_GWS.length;gi++){
+    for(const url of urls){
       try{
-        const r=await fetch(buildIpfsUrl(cid,path,gi),{method:'HEAD',cache:'no-store'});
+        const r=await fetch(url,{method:'HEAD',cache:'no-store'});
         if(r.ok) return true;
       }catch{}
     }
@@ -1649,12 +1687,7 @@ function attachmentPreviewCandidates(token){
   }
   const ipfs=extractIpfsParts(t);
   if(ipfs?.cid){
-    const urls=[buildIpfsUrl(ipfs.cid,'',0)];
-    if(ipfs.path) urls.push(buildIpfsUrl(ipfs.cid,ipfs.path,0));
-    for(let i=1;i<IPFS_GWS.length;i++){
-      urls.push(buildIpfsUrl(ipfs.cid,'',i));
-      if(ipfs.path) urls.push(buildIpfsUrl(ipfs.cid,ipfs.path,i));
-    }
+    const urls=cidGatewayCandidates(ipfs.cid);
     return{kind:mediaKindFromPath(ipfs.path),urls:[...new Set(urls)],raw:t};
   }
   const oc=t.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})(?:[\\/]([^<>]+))?$/);
@@ -1687,18 +1720,13 @@ window.media_fallback=function(el){
     else el.removeAttribute('onerror');
   }
 };
-// Returns ordered candidate URLs for a profile image (CID-only first, then CID+path, per SupTV pattern)
+// Returns ordered candidate URLs for a profile image (CID-only, Filebase first)
 function profileImgCandidates(ref){
   const v=norm(ref);if(!v) return [];
   if(/^https?:\/\//i.test(v)) return [v];
   const ipfs=extractIpfsParts(v);
   if(ipfs?.cid){
-    const cands=[];
-    // Try CID-only on each gateway first (like SupTV / SupRadio)
-    IPFS_GWS.forEach((gw,gi)=>cands.push(buildIpfsUrl(ipfs.cid,'',gi)));
-    // Then CID+path on each gateway (if path is present)
-    if(ipfs.path) IPFS_GWS.forEach((gw,gi)=>cands.push(buildIpfsUrl(ipfs.cid,ipfs.path,gi)));
-    return cands;
+    return cidGatewayCandidates(ipfs.cid);
   }
   const oc=v.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})[\\/]([^<>]+)$/);
   if(oc) return[onchainFileUrl(oc[2],oc[3])];
@@ -3141,7 +3169,7 @@ async function uploadProfileImageFile(){
     }
     setChip($('peImgBadge'),'Valid','good');
     showStatus(st,'Uploaded and pinned for 1 hour. Preview may take time to appear—please wait before posting. Files over a few MB can take much longer.','warn');
-    const previewReady=await waitForIpfsIo(cid,fileName);
+    const previewReady=await waitForIpfsIo(cid);
     if(previewReady){
       if(img){
         const cands=profileImgCandidates(uploaded.canonical);
@@ -3480,7 +3508,7 @@ async function uploadComposeAttachmentFile(){
     if(txtInp) txtInp.value=canonical;
     renderComposeAttachments();
     showStatus(st,'Uploaded and pinned for 1 hour. Preview may take time to appear—please wait before posting. Files over a few MB can take much longer.','warn');
-    const previewReady=await waitForIpfsIo(cid,fileName);
+    const previewReady=await waitForIpfsIo(cid);
     if(previewReady){
       renderComposeAttachments();
       showStatus(st,`Preview ready on IPFS · Attached: ${canonical.slice(0,80)}`,'good');

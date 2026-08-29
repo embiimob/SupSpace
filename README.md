@@ -114,7 +114,7 @@ Import the same WIF in any of these apps and your identity (address and profile)
 
 | Behavior | Purpose in SupSpace |
 | --- | --- |
-| `HEAD` request to candidate gateway URL | Validates that an attachment URL/URN resolves before adding to post. |
+| `HEAD` request to candidate gateway URL (CID-only) | Validates that an attachment URL/URN resolves before adding to post, using only the IPFS CID root URL. |
 
 ## Key configuration constants
 
@@ -122,7 +122,7 @@ In `index.html`, adjust:
 
 - `API_BASE` (default: `https://p2fk.io`)
 - `MEMPOOL_API` (default: `https://mempool.space/testnet/api`)
-- `IPFS_GWS` (gateway list used for media resolution/verification)
+- `IPFS_GWS` (gateway list used for media resolution/verification; Filebase primary, Pinata secondary)
 
 ## Security and usage notes
 
