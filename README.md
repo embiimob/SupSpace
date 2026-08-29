@@ -114,7 +114,7 @@ Import the same WIF in any of these apps and your identity (address and profile)
 
 | Behavior | Purpose in SupSpace |
 | --- | --- |
-| `HEAD` request to candidate gateway URL | Validates that an attachment URL/URN resolves before adding to post. |
+| `HEAD` request to candidate gateway URL (CID-only) | Validates that an attachment URL/URN resolves before adding to post, using only the IPFS CID root URL. |
 
 ## Key configuration constants
 
