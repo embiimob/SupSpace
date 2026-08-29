@@ -129,6 +129,8 @@
     .tweet-media{margin:8px 0;border-radius:16px;overflow:hidden;border:1px solid var(--border);max-height:300px}
     .tweet-media img,.tweet-media video{width:100%;max-height:300px;object-fit:cover;display:block}
     .tweet-media audio{width:100%;padding:8px}
+    .tweet-media-embed{position:relative;padding-bottom:56.25%;height:0;max-height:none}
+    .tweet-media-embed iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0}
     .tweet-media-file{display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:12px;border:1px solid var(--border);font-size:.82rem;font-family:monospace;color:var(--muted);word-break:break-all;margin:6px 0}
     .tweet-actions{display:flex;gap:0;margin-top:6px;margin-left:-8px;align-items:center;flex-wrap:wrap}
     .tweet-metrics{display:none!important}
@@ -1676,12 +1678,38 @@ async function waitForIpfsIo(cid,tries=8,gapMs=2500){
   }
   return false;
 }
+function videoEmbedUrl(href){
+  try{
+    const u=new URL(href);
+    const h=u.hostname.replace(/^www\./,'');
+    // YouTube watch or short links
+    if(h==='youtube.com'||h==='m.youtube.com'){
+      const vid=u.searchParams.get('v');
+      if(vid) return`https://www.youtube.com/embed/${encodeURIComponent(vid)}`;
+      // YouTube Shorts
+      const sm=u.pathname.match(/^\/shorts\/([A-Za-z0-9_-]+)/);
+      if(sm) return`https://www.youtube.com/embed/${sm[1]}`;
+    }
+    if(h==='youtu.be'){
+      const vid=u.pathname.replace(/^\//,'').split('/')[0];
+      if(vid) return`https://www.youtube.com/embed/${encodeURIComponent(vid)}`;
+    }
+    // Vimeo
+    if(h==='vimeo.com'){
+      const vm=u.pathname.match(/^\/(\d+)/);
+      if(vm) return`https://player.vimeo.com/video/${vm[1]}`;
+    }
+  }catch{}
+  return null;
+}
 function attachmentPreviewCandidates(token){
   const t=norm(token);
   if(!t) return{kind:'file',urls:[],raw:t};
   if(/^https?:\/\//i.test(t)){
     try{
       const u=new URL(t);
+      const embedUrl=videoEmbedUrl(t);
+      if(embedUrl) return{kind:'embed',urls:[embedUrl],raw:t};
       return{kind:mediaKindFromPath(u.pathname),urls:[u.toString()],raw:t};
     }catch{return{kind:'link',urls:[t],raw:t};}
   }
@@ -2210,6 +2238,7 @@ function renderAttachEl(token){
   if(preview&&info.kind==='image'){wrap.className='tweet-media';wrap.innerHTML=`<img ${attrs} alt="Attachment">`;}
   else if(preview&&info.kind==='audio'){wrap.className='tweet-media';wrap.innerHTML=`<audio controls ${attrs}></audio>`;}
   else if(preview&&info.kind==='video'){wrap.className='tweet-media';wrap.innerHTML=`<video controls ${attrs} style="width:100%"></video>`;}
+  else if(preview&&info.kind==='embed'){wrap.className='tweet-media tweet-media-embed';wrap.innerHTML=`<iframe src="${esc(preview)}" frameborder="0" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" loading="lazy"></iframe>`;}
   else if(preview){wrap.className='tweet-media-file';wrap.innerHTML=`📎 <a href="${esc(preview)}" target="_blank" rel="noopener">${esc(info.raw.slice(0,60))}</a>`;}
   else{wrap.className='tweet-media-file';wrap.innerHTML=`📎 <span class="mono">${esc(info.raw.slice(0,80))}</span>`;}
   return wrap;
@@ -2279,6 +2308,7 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
     if(preview&&info.kind==='image') mediaHtml.push(`<div class="tweet-media"><img ${attrs} alt=""></div>`);
     else if(preview&&info.kind==='audio') mediaHtml.push(`<div class="tweet-media"><audio controls ${attrs}></audio></div>`);
     else if(preview&&info.kind==='video') mediaHtml.push(`<div class="tweet-media"><video controls ${attrs} style="width:100%"></video></div>`);
+    else if(preview&&info.kind==='embed') mediaHtml.push(`<div class="tweet-media tweet-media-embed"><iframe src="${esc(preview)}" frameborder="0" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" loading="lazy"></iframe></div>`);
     else if(preview) mediaHtml.push(`<div class="tweet-media-file">📎 <a href="${esc(preview)}" target="_blank" rel="noopener">${esc(tok.slice(0,60))}</a></div>`);
   });
   const isPending = root.isPending || false;
