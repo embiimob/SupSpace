@@ -1555,7 +1555,7 @@ async function buildProOutputs({urn,fnm,mnm,lnm,sfx,bio,img,urls,loc,enableSec,t
   if(transferAddr) pj.cre=[S.addr, transferAddr];
   else pj.cre=['0'];
   if(enableSec){const{x,y}=priv2pt(S.priv);pj.pkx=x.toString(16);pj.pky=y.toString(16);}
-  const json=JSON.stringify(pj);
+  const json=JSON.stringify(pj).replace(/[^\x00-\x7F]/gu,c=>{const cp=c.codePointAt(0);if(cp>0xFFFF){const o=cp-0x10000;return`\\u${(0xD800+(o>>10)).toString(16).padStart(4,'0')}\\u${(0xDC00+(o&0x3FF)).toString(16).padStart(4,'0')}`;}return`\\u${cp.toString(16).padStart(4,'0')}`;});
   const delim=randDelim();
   const body=`PRO${delim}${utf8len(json)}${delim}${json}`;
   const sigHash=(await sha256hex(body)).toUpperCase();
