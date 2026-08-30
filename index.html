@@ -618,7 +618,8 @@
       </div>
       <div id="transferStep2" class="hidden">
         <p style="color:var(--danger);font-weight:bold;margin-top:0;">Warning</p>
-        <p style="margin-bottom:16px;line-height:1.4;">Are you sure you want to transfer this handle to the following address? You will lose all control of it.</p>
+        <p style="line-height:1.4;">Are you sure you want to transfer this handle to the following address? You will lose all control of it.</p>
+        <p style="margin-bottom:16px;line-height:1.4;color:var(--muted);">Once this transfer confirms, the new owner must update the profile themselves to complete the transfer.</p>
         <p id="transferConfirmAddr" style="word-break:break-all;font-family:monospace;background:var(--bg2);padding:8px;border-radius:4px;margin-bottom:16px;"></p>
         <div style="display:flex;justify-content:flex-end;gap:8px;">
           <button class="btn btn-out" onclick="$('transferStep1').classList.remove('hidden');$('transferStep2').classList.add('hidden');">Back</button>
