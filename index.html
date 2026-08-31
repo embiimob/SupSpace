@@ -1548,6 +1548,15 @@ async function buildMsgOutputs({text,attachments=[],extras=[],fromAddr}){
 
 async function buildProOutputs({urn,fnm,mnm,lnm,sfx,bio,img,urls,loc,enableSec,transferAddr}){
   if(!S.priv||!S.addr) throw new Error('Unlock wallet first');
+  let priorClaimAddrs=[];
+  if(!transferAddr){
+    try{
+      const existing=await fetchProfileByURN(urn,true);
+      priorClaimAddrs=[...new Set((existing?.creators||[])
+        .map(a=>norm(a))
+        .filter(a=>a&&a!==S.addr&&isAddr(a)))];
+    }catch{}
+  }
   const pj={urn};
   if(fnm) pj.fnm=fnm; if(mnm) pj.mnm=mnm; if(lnm) pj.lnm=lnm; if(sfx) pj.sfx=sfx;
   if(bio) pj.bio=bio; if(img) pj.img=img;
@@ -1567,6 +1576,7 @@ async function buildProOutputs({urn,fnm,mnm,lnm,sfx,bio,img,urls,loc,enableSec,t
   // URN keyword address
   rset.add(await deriveKeywordAddress(urn));
   if(transferAddr) rset.add(transferAddr);
+  for(const addr of priorClaimAddrs) rset.add(addr);
   rset.add(S.addr);
   return[...rset].map(addr=>({addr,amount:AMOUNT_PER}));
 }
