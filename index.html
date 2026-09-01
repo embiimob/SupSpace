@@ -1723,6 +1723,29 @@ function videoEmbedUrl(href){
 
 /* ── Non-blocking web link card (OG metadata) ─────────────────────────── */
 const _ogCache=new Map();
+function ogFetchCandidates(rawUrl){
+  try{
+    const u=new URL(rawUrl);
+    const abs=u.toString();
+    const out=[abs];
+    out.push(`https://cors.isomorphic-git.org/${abs}`);
+    out.push(`https://api.allorigins.win/raw?url=${encodeURIComponent(abs)}`);
+    out.push(`https://r.jina.ai/${u.protocol}//${u.host}${u.pathname}${u.search}${u.hash}`);
+    return [...new Set(out)];
+  }catch{return[rawUrl];}
+}
+async function fetchOgHtml(url,signal){
+  let lastErr;
+  for(const target of ogFetchCandidates(url)){
+    try{
+      const res=await fetch(target,{signal,cache:'no-store',headers:{'Accept':'text/html,application/xhtml+xml'}});
+      if(!res.ok) throw new Error(res.status);
+      const html=await res.text();
+      if(html) return html;
+    }catch(err){lastErr=err;}
+  }
+  throw lastErr||new Error('Unable to fetch OG HTML');
+}
 async function fetchOgData(url){
   if(_ogCache.has(url)) return _ogCache.get(url);
   const sentinel={_pending:true};
@@ -1732,9 +1755,7 @@ async function fetchOgData(url){
   const ctrl=new AbortController();
   const timer=setTimeout(()=>ctrl.abort(),6000);
   try{
-    const res=await fetch(url,{signal:ctrl.signal});
-    if(!res.ok) throw new Error(res.status);
-    const html=await res.text();
+    const html=await fetchOgHtml(url,ctrl.signal);
     const doc=new DOMParser().parseFromString(html,'text/html');
     const gmeta=(sel,attr)=>{const el=doc.querySelector(sel);return el?(attr?el.getAttribute(attr)||'':el.textContent.trim()):'';}
     const rawImg=gmeta('meta[property="og:image"]','content')||gmeta('meta[name="twitter:image"]','content')||gmeta('meta[name="twitter:image:src"]','content');
