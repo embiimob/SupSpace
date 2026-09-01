@@ -1727,25 +1727,46 @@ async function fetchOgData(url){
   if(_ogCache.has(url)) return _ogCache.get(url);
   const sentinel={_pending:true};
   _ogCache.set(url,sentinel);
+  const domain=(()=>{try{return new URL(url).hostname.replace(/^www\./,'');}catch{return url;}})();
+  const fallback={title:'',description:'',image:'',domain};
+  /* ordered list of proxy strategies; each returns raw HTML string or throws */
+  const proxies=[
+    async(u,sig)=>{
+      const r=await fetch('https://corsproxy.io/?url='+encodeURIComponent(u),{signal:sig});
+      if(!r.ok) throw new Error(r.status);
+      return r.text();
+    },
+    async(u,sig)=>{
+      const r=await fetch('https://api.allorigins.win/get?url='+encodeURIComponent(u),{signal:sig});
+      if(!r.ok) throw new Error(r.status);
+      const j=await r.json();
+      return j.contents||'';
+    },
+    async(u,sig)=>{
+      const r=await fetch('https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(u),{signal:sig});
+      if(!r.ok) throw new Error(r.status);
+      return r.text();
+    },
+  ];
   const ctrl=new AbortController();
-  const timer=setTimeout(()=>ctrl.abort(),5000);
+  const timer=setTimeout(()=>ctrl.abort(),8000);
   try{
-    const proxy='https://api.allorigins.win/get?url='+encodeURIComponent(url);
-    const res=await fetch(proxy,{signal:ctrl.signal});
-    if(!res.ok) throw new Error(res.status);
-    const {contents}=await res.json();
-    const doc=new DOMParser().parseFromString(contents||'','text/html');
+    let html='';
+    for(const proxy of proxies){
+      try{html=await proxy(url,ctrl.signal);if(html) break;}catch{}
+    }
+    if(!html) throw new Error('all proxies failed');
+    const doc=new DOMParser().parseFromString(html,'text/html');
     const gmeta=(sel,attr)=>{const el=doc.querySelector(sel);return el?(attr?el.getAttribute(attr)||'':el.textContent.trim()):'';}
     const data={
       title:gmeta('meta[property="og:title"]','content')||gmeta('meta[name="twitter:title"]','content')||gmeta('title',''),
       description:gmeta('meta[property="og:description"]','content')||gmeta('meta[name="description"]','content')||gmeta('meta[name="twitter:description"]','content'),
       image:gmeta('meta[property="og:image"]','content')||gmeta('meta[name="twitter:image"]','content')||gmeta('meta[name="twitter:image:src"]','content'),
-      domain:(()=>{try{return new URL(url).hostname.replace(/^www\./,'');}catch{return url;}})()
+      domain
     };
     _ogCache.set(url,data);
     return data;
   }catch{
-    const fallback={title:'',description:'',image:'',domain:(()=>{try{return new URL(url).hostname.replace(/^www\./,'');}catch{return url;}})()};
     _ogCache.set(url,fallback);
     return fallback;
   }finally{clearTimeout(timer);}
