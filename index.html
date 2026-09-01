@@ -1728,12 +1728,17 @@ async function fetchOgData(url){
   const sentinel={_pending:true};
   _ogCache.set(url,sentinel);
   const ctrl=new AbortController();
-  const timer=setTimeout(()=>ctrl.abort(),5000);
+  const timer=setTimeout(()=>ctrl.abort(),8000);
+  const tryProxy=async(proxyUrl)=>{const r=await fetch(proxyUrl,{signal:ctrl.signal});if(!r.ok)throw new Error(r.status);return r;};
   try{
-    const proxy='https://api.allorigins.win/get?url='+encodeURIComponent(url);
-    const res=await fetch(proxy,{signal:ctrl.signal});
-    if(!res.ok) throw new Error(res.status);
-    const {contents}=await res.json();
+    let res,contents;
+    try{
+      res=await tryProxy('https://api.allorigins.win/get?url='+encodeURIComponent(url));
+      ({contents}=await res.json());
+    }catch{
+      res=await tryProxy('https://corsproxy.io/?url='+encodeURIComponent(url));
+      contents=await res.text();
+    }
     const doc=new DOMParser().parseFromString(contents||'','text/html');
     const gmeta=(sel,attr)=>{const el=doc.querySelector(sel);return el?(attr?el.getAttribute(attr)||'':el.textContent.trim()):'';}
     const data={
@@ -1774,7 +1779,7 @@ function attachmentPreviewCandidates(token){
       const u=new URL(t);
       const embedUrl=videoEmbedUrl(t);
       if(embedUrl) return{kind:'embed',urls:[embedUrl],raw:t};
-      return{kind:mediaKindFromPath(u.pathname),urls:[u.toString()],raw:t};
+      const mk=mediaKindFromPath(u.pathname);return{kind:mk==='file'?'link':mk,urls:[u.toString()],raw:t};
     }catch{return{kind:'link',urls:[t],raw:t};}
   }
   const ipfs=extractIpfsParts(t);
