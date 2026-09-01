@@ -1778,7 +1778,9 @@ function attachmentPreviewCandidates(token){
       const u=new URL(t);
       const embedUrl=videoEmbedUrl(t);
       if(embedUrl) return{kind:'embed',urls:[embedUrl],raw:t};
-      return{kind:mediaKindFromPath(u.pathname),urls:[u.toString()],raw:t};
+      const mk=mediaKindFromPath(u.pathname);
+      if(mk==='file') return{kind:'link',urls:[u.toString()],raw:t};
+      return{kind:mk,urls:[u.toString()],raw:t};
     }catch{return{kind:'link',urls:[t],raw:t};}
   }
   const ipfs=extractIpfsParts(t);
