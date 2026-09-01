@@ -2953,6 +2953,18 @@ function renderWalletUI(container, balance=null){
   container.querySelector('#wUnlockPass')?.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();unlockWallet();}});
   if(!locked) refreshBalance();
 }
+function refreshWalletSurfaces(){
+  const wvb=$('walletViewBody');
+  if(wvb){
+    if($('viewWallet')?.classList.contains('active')) renderWalletUI(wvb);
+    else wvb.innerHTML='';
+  }
+  const wmb=$('walletModalBody');
+  if(wmb){
+    if(!$('modalWallet')?.classList.contains('hidden')) renderWalletUI(wmb);
+    else wmb.innerHTML='';
+  }
+}
 async function refreshBalance(){
   if(!S.addr||!S.priv) return;
   try{
@@ -3050,11 +3062,8 @@ async function afterUnlock(){
   try{ S.keyring=await buildKeyring(S.priv); }catch{}
   // load own profile
   try{S.myProfile=await fetchProfileByAddr(S.addr);updateWalletMini();}catch{}
-  // render wallet views
-  const wvb=$('walletViewBody');
-  if(wvb) renderWalletUI(wvb);
-  const wmb=$('walletModalBody');
-  if(wmb) renderWalletUI(wmb);
+  // render wallet surfaces only when visible
+  refreshWalletSurfaces();
   renderSidebarList();
   // populate profile editor
   populateProfileEditor(S.myProfile);
@@ -3133,8 +3142,7 @@ async function exportWif(){
 function lockWallet(){
   S.priv=null;S.addr='';S.myProfile=null;S.keyring=null;
   updateWalletMini();
-  const wvb=$('walletViewBody');if(wvb) renderWalletUI(wvb);
-  const wmb=$('walletModalBody');if(wmb) renderWalletUI(wmb);
+  refreshWalletSurfaces();
   const ic=$('inlineCompose');if(ic)ic.classList.add('hidden');
 }
 function forgetWallet(){
@@ -3786,6 +3794,7 @@ function switchView(view){
   }
   if(view==='home'&&!S.feedLoaded) loadHomeFeed();
   if(view==='wallet') renderWalletUI($('walletViewBody'));
+  else refreshWalletSurfaces();
   if(view==='community') loadCommunityFeed();
   setSidebarMode(view==='community'?'follows':'trending');
   if(view!=='explore') syncQueryUrl('');
@@ -4485,6 +4494,7 @@ function openModal(id){
 function closeModal(id){
   const el=$(id);if(el)el.classList.add('hidden');
   if(id==='modalPost') clearObserver('thread');
+  if(id==='modalWallet') refreshWalletSurfaces();
 }
 window.openModal=openModal;
 window.closeModal=closeModal;
@@ -4624,10 +4634,7 @@ window.autoResize=autoResize;
   if(stored){
     // don't auto-unlock but show a prompt in wallet view
   }
-  // render wallet view
-  renderWalletUI($('walletViewBody'));
-  // render wallet modal body (pre-render)
-  renderWalletUI($('walletModalBody'));
+  refreshWalletSurfaces();
   // deep-link or start home feed
   const deepQ=readQueryFromUrl();
   if(deepQ){
