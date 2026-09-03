@@ -1265,10 +1265,12 @@ async function broadcastTx(outputs) {
   // 1. Fetch balances to find candidate addresses
   const totByAddr=new Map();
   const utxoCountByAddr=new Map();
+  let hasAnyUnconfirmedFunds=false;
   const balancePromises = kr.all.map(async sg => {
     const bal = await getBalance(sg.addr).catch(() => ({confirmed: 0, unconfirmed: 0, utxo_count: 0, funded_txo_count: 0}));
     totByAddr.set(sg.addr, bal.confirmed);
     utxoCountByAddr.set(sg.addr, bal.utxo_count);
+    if ((bal.unconfirmed||0) > 0) hasAnyUnconfirmedFunds=true;
     sg.utxoCount = bal.utxo_count;
     sg.fundedTxoCount = bal.funded_txo_count || 0;
   });
@@ -1344,7 +1346,10 @@ async function broadcastTx(outputs) {
       }
     }
   }
-  if(!selUtxos.length) throw new Error('Insufficient funds across main + change addresses (including fee estimation)');
+  if(!selUtxos.length){
+    if(hasAnyUnconfirmedFunds) throw new Error('your last post is unconfirmed.  try again in a few minutes');
+    throw new Error('Insufficient funds across main + change addresses (including fee estimation)');
+  }
   const fee=estFee(selUtxos.length,outSats.length+1);
   const change=selTotal-totalOut-fee;
   if(change<0) throw new Error('Insufficient balance after fee');
