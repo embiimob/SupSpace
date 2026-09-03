@@ -1934,6 +1934,40 @@ function clearTrendingRootSearchCache(){
 function clearForYouCache(){
   S.forYouCache={rows:[],maxQty:0,ts:0,followedKey:'',reqs:new Map()};
 }
+function normalizeTrendingTerm(raw){
+  const term=norm(raw).replace(/\s+/g,' ').trim();
+  if(!term) return null;
+  const lower=term.toLowerCase();
+  if(['mp3','mp4','#mp3','#mp4'].includes(lower)) return null;
+  if(term.startsWith('#')){
+    const tag=norm(term.slice(1)).trim();
+    if(!tag) return null;
+    return { key:`#${tag.toLowerCase()}`, query:`#${tag}`, label:`#${tag}` };
+  }
+  if(term.startsWith('@')){
+    const urn=norm(term.slice(1)).trim();
+    if(!urn) return null;
+    return { key:`@${urn.toLowerCase()}`, query:`@${urn}`, label:`@${urn}` };
+  }
+  return { key:lower, query:term, label:term };
+}
+function runTrendingSearch(query){
+  const q=norm(query).trim();
+  if(!q) return;
+  switchView('explore');
+  const si=$('exploreSearchInput');if(si) si.value=q;
+  runExploreSearch(q);
+}
+function bindTrendingClicks(container){
+  if(!container||container.dataset.trendClickBound==='1') return;
+  container.dataset.trendClickBound='1';
+  container.addEventListener('click',e=>{
+    const item=e.target?.closest?.('.trend-item[data-trend-query]');
+    if(!item||!container.contains(item)) return;
+    const query=norm(item.dataset.trendQuery||'').trim();
+    if(query) runTrendingSearch(query);
+  });
+}
 async function getTrendingRootSearches(qty){
   const safeQty=Math.max(0,Number(qty)||0);
   if(!safeQty) return [];
@@ -3950,22 +3984,21 @@ async function loadHomeFeed(){
 
 async function loadTrending(rootsFallback=[]){
   const tc=$('trendingContent');if(!tc) return;
+  bindTrendingClicks(tc);
   try{
     const rows=await getTrendingRootSearches(20);
     if(!rows.length) throw new Error('empty');
     clr(tc);
     const seen=new Set();let rendered=0;
     for(const row of rows){
-      const term=norm(row?.searchString||row?.SearchString||row?.keyword||row?.Keyword||'').replace(/^#/,'').trim();
-      const termNorm=term.toLowerCase();
-      if(!term||seen.has(termNorm)) continue;
-      if(['mp3','mp4'].includes(termNorm)) continue;
-      seen.add(termNorm);
+      const trend=normalizeTrendingTerm(row?.searchString||row?.SearchString||row?.keyword||row?.Keyword||'');
+      if(!trend||seen.has(trend.key)) continue;
+      seen.add(trend.key);
       const results=Number(row?.lastResultCount||row?.ResultCount||row?.resultCount||row?.results||0)||0;
       const searches=Number(row?.successfulSearchCount||row?.SearchCount||row?.searchCount||row?.count||0)||0;
       const el=document.createElement('div');el.className='trend-item';
-      el.onclick=()=>exploreText(term);
-      el.innerHTML=`<div class="trend-cat">Trending · testnet3</div><div class="trend-kw">${esc(term)}</div><div class="trend-n">${searches?searches+' searches':(results?results+' posts':'')}</div>`;
+      el.dataset.trendQuery=trend.query;
+      el.innerHTML=`<div class="trend-cat">Trending · testnet3</div><div class="trend-kw">${esc(trend.label)}</div><div class="trend-n">${searches?searches+' searches':(results?results+' posts':'')}</div>`;
       tc.appendChild(el);
       if(++rendered>=8) break;
     }
@@ -3981,10 +4014,11 @@ async function loadTrending(rootsFallback=[]){
   if(!tagCount.size){tc.innerHTML='<div class="trend-n">No trending topics yet</div>';return;}
   clr(tc);
   [...tagCount.entries()].sort((a,b)=>b[1]-a[1]).slice(0,8).forEach(([tag,n])=>{
-    const term=norm(tag).replace(/^#/,'');
+    const trend=normalizeTrendingTerm(tag);
+    if(!trend) return;
     const el=document.createElement('div');el.className='trend-item';
-    el.onclick=()=>exploreText(term);
-    el.innerHTML=`<div class="trend-cat">Trending · testnet3</div><div class="trend-kw">${esc(term)}</div><div class="trend-n">${n} ${n===1?'post':'posts'}</div>`;
+    el.dataset.trendQuery=trend.query;
+    el.innerHTML=`<div class="trend-cat">Trending · testnet3</div><div class="trend-kw">${esc(trend.label)}</div><div class="trend-n">${n} ${n===1?'post':'posts'}</div>`;
     tc.appendChild(el);
   });
 }
@@ -3993,6 +4027,7 @@ function syncMobileSidebarList(){
   const title=$('sidebarListTitle'),tc=$('trendingContent');
   const mt=$('mobileSidebarListTitle'),mc=$('mobileTrendingContent');
   if(!title||!tc||!mt||!mc) return;
+  bindTrendingClicks(mc);
   mt.textContent=title.textContent;
   mc.innerHTML=tc.innerHTML;
 }
