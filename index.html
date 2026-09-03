@@ -782,6 +782,7 @@ const S = {
   followed: new Set(),
   blocked: new Set(),
   communityCache: {ts:0,posts:[]},
+  newUsersCache: {ts:0,rows:[]},
   sidebarMode: 'trending',
   sidebarRenderToken: 0,
   composeAttachments: [],
@@ -993,7 +994,30 @@ function socialSnapshot(){
   return{
     followed:[...S.followed],
     blocked:[...S.blocked],
-    communityCache:S.communityCache||{ts:0,posts:[]}
+    communityCache:S.communityCache||{ts:0,posts:[]},
+    newUsersCache:S.newUsersCache||{ts:0,rows:[]}
+  };
+}
+function normalizeNewUsersCache(raw){
+  const rows=Array.isArray(raw?.rows)?raw.rows:[];
+  return{
+    ts:Number(raw?.ts||0),
+    rows:rows.map(row=>{
+      const addr=norm(row?.addr||row?.address||'');
+      if(!isAddr(addr)) return null;
+      const rp=row?.p||row?.profile||{};
+      return{
+        addr,
+        p:{
+          addr,
+          urn:norm(rp?.urn||rp?.URN||''),
+          displayName:norm(rp?.displayName||rp?.DisplayName||rp?.urn||rp?.URN||addr||'Unknown'),
+          image:norm(rp?.image||rp?.Image||'')
+        },
+        official:row?.official!==false,
+        createdDate:row?.createdDate||rp?.createdDate||rp?.CreatedDate||''
+      };
+    }).filter(Boolean)
   };
 }
 function saveSocialState(){
@@ -1011,6 +1035,7 @@ function loadSocialState(){
       posts:Array.isArray(cc.posts)?cc.posts.map(asRoot).filter(Boolean):[],
       followedKey:norm(cc.followedKey||'')
     };
+    S.newUsersCache=normalizeNewUsersCache(raw.newUsersCache||{});
   }catch{}
 }
 function isBlockedAddr(addr){return isAddr(addr)&&S.blocked.has(addr);}
@@ -3977,40 +4002,14 @@ async function renderSidebarList(){
   if(!tc||!title) return;
   const token=++S.sidebarRenderToken;
   if(S.sidebarMode==='trending'){title.textContent='Trending';await loadTrending((S.communityCache?.posts||[]).map(asRoot).filter(Boolean));syncMobileSidebarList();return;}
-  if(S.sidebarMode==='newUsers'){
-    title.textContent='New Users';
+  const renderNewUsersRows=rows=>{
     clr(tc);
-    tc.innerHTML='<div class="trend-n">Loading…</div>';
-    syncMobileSidebarList();
-    let rawList=[];
-    try{
-      const res=await fetchJ(`${API_BASE}/GetKnownProfilesBySearchString?searchString=*&qty=200&skip=0&mainnet=false&showSystemFiles=false`,20000);
-      rawList=Array.isArray(res)?res:(Array.isArray(res?.results)?res.results:[]);
-      // sort by newest first (CreatedDate is nested inside r.profile), then take top 20
-      rawList.sort((a,b)=>new Date(b?.profile?.CreatedDate||0)-new Date(a?.profile?.CreatedDate||0));
-      rawList=rawList.slice(0,20);
-    }catch(e){}
-    if(token!==S.sidebarRenderToken) return;
-    // Resolve full profiles (thumbnail, displayName, urn, official status) by address
-    const resolved=await Promise.all(rawList.map(async r=>{
-      const addr=r?.addr||r?.address||'';
-      if(!addr) return null;
-      const p=await fetchProfileByAddr(addr).catch(()=>null);
-      // If API lookup fails, build a minimal profile from the nested r.profile fields
-      const fallback=p||{
-        addr,
-        urn:r?.profile?.URN||'',
-        displayName:r?.profile?.DisplayName||'',
-        image:r?.profile?.Image||''
-      };
-      const official=await isOfficial(fallback).catch(()=>true);
-      return{addr,p:fallback,official};
-    }));
-    if(token!==S.sidebarRenderToken) return;
-    const profiles=resolved.filter(Boolean);
-    clr(tc);
-    if(!profiles.length){tc.innerHTML='<div class="trend-n">No new users found</div>';syncMobileSidebarList();return;}
-    profiles.forEach(({addr,p,official})=>{
+    if(!rows.length){
+      tc.innerHTML='<div class="trend-n">No new users found</div>';
+      syncMobileSidebarList();
+      return;
+    }
+    rows.forEach(({addr,p,official})=>{
       const unofficialBadge=!official?`<span class="chip" style="font-size:.62rem;padding:1px 5px;vertical-align:middle;" title="Not an official account">unofficial</span>`:'';
       const el=document.createElement('div');
       el.className='social-item';
@@ -4025,6 +4024,57 @@ async function renderSidebarList(){
       tc.appendChild(el);
     });
     syncMobileSidebarList();
+  };
+  if(S.sidebarMode==='newUsers'){
+    title.textContent='New Users';
+    const cachedRows=Array.isArray(S.newUsersCache?.rows)?S.newUsersCache.rows.filter(r=>isAddr(r?.addr)).slice(0,20):[];
+    if(cachedRows.length) renderNewUsersRows(cachedRows);
+    else{
+      clr(tc);
+      tc.innerHTML='<div class="trend-n">Loading…</div>';
+      syncMobileSidebarList();
+    }
+    let rawList=[];
+    try{
+      const res=await fetchJ(`${API_BASE}/GetKnownProfilesBySearchString?searchString=*&qty=200&skip=0&mainnet=false&showSystemFiles=false`,20000);
+      rawList=Array.isArray(res)?res:(Array.isArray(res?.results)?res.results:[]);
+      // sort by newest first (CreatedDate is nested inside r.profile), then take top 20
+      rawList.sort((a,b)=>new Date(b?.profile?.CreatedDate||0)-new Date(a?.profile?.CreatedDate||0));
+      rawList=rawList.slice(0,20);
+    }catch(e){}
+    if(token!==S.sidebarRenderToken) return;
+    if(!rawList.length){
+      if(!cachedRows.length) renderNewUsersRows([]);
+      return;
+    }
+    const cacheByAddr=new Map(cachedRows.map(r=>[r.addr,r]));
+    let foundNewUser=false;
+    // Resolve only uncached users by address
+    const resolved=await Promise.all(rawList.map(async r=>{
+      const addr=r?.addr||r?.address||'';
+      if(!isAddr(addr)) return null;
+      const createdDate=r?.profile?.CreatedDate||'';
+      const cached=cacheByAddr.get(addr);
+      if(cached) return{...cached,createdDate:createdDate||cached.createdDate||''};
+      foundNewUser=true;
+      const p=await fetchProfileByAddr(addr).catch(()=>null);
+      // If API lookup fails, build a minimal profile from the nested r.profile fields
+      const fallback=p||{
+        addr,
+        urn:r?.profile?.URN||'',
+        displayName:r?.profile?.DisplayName||'',
+        image:r?.profile?.Image||''
+      };
+      const official=await isOfficial(fallback).catch(()=>true);
+      return{addr,p:fallback,official,createdDate};
+    }));
+    if(token!==S.sidebarRenderToken) return;
+    const profiles=resolved.filter(Boolean).slice(0,20);
+    if(foundNewUser||!cachedRows.length){
+      S.newUsersCache={ts:Date.now(),rows:profiles};
+      saveSocialState();
+    }
+    renderNewUsersRows(profiles);
     return;
   }
   const addrs=S.sidebarMode==='blocked'?[...S.blocked]:[...S.followed];
