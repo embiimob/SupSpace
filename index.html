@@ -1303,14 +1303,14 @@ function queueMediaElementHydration(el){
 }
 function scanNodeForMediaHydration(node){
   if(!node) return;
-  if(node.nodeType===1&&/^(IMG|VIDEO|AUDIO)$/.test(node.tagName)) queueMediaElementHydration(node);
-  if(typeof node.querySelectorAll==='function') node.querySelectorAll('img,video,audio').forEach(queueMediaElementHydration);
+  if(node.nodeType===1&&/^IMG$/.test(node.tagName)) queueMediaElementHydration(node);
+  if(typeof node.querySelectorAll==='function') node.querySelectorAll('img').forEach(queueMediaElementHydration);
 }
 function initMediaDiskCacheHydration(){
   scanNodeForMediaHydration(document.body);
   const mo=new MutationObserver(muts=>{
     muts.forEach(m=>{
-      if(m.type==='attributes'&&m.target&&/^(IMG|VIDEO|AUDIO)$/.test(m.target.tagName)){
+      if(m.type==='attributes'&&m.target&&/^IMG$/.test(m.target.tagName)){
         if(m.attributeName==='src') m.target.dataset.cacheHydrated='';
         queueMediaElementHydration(m.target);
         return;
