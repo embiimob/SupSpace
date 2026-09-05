@@ -726,39 +726,6 @@ const CID_RE = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[1-9A-HJ-NP-Za-km-z]{20,})$/i;
 const DEFAULT_IPFS_GWS = ['https://p2fk.io/ipfs/','https://ipfs.filebase.io/ipfs/','https://gateway.pinata.cloud/ipfs/'];
 const IPFS_SETTINGS_KEY = 'sup_ipfs_settings_v1';
 const MEDIA_CACHE_NAME = 'supspace_media_cache_v1';
-const INLINE_MEDIA_SW = `
-const MEDIA_CACHE_NAME = '${MEDIA_CACHE_NAME}';
-function shouldCacheRequest(request){
-  if(!request||request.method!=='GET') return false;
-  if(request.headers?.has('range')) return false;
-  let url;
-  try{url=new URL(request.url);}catch{return false;}
-  if(!/^https?:$/i.test(url.protocol)) return false;
-  if(url.pathname.includes('/ipfs/')) return true;
-  if(request.destination==='image') return true;
-  return false;
-}
-self.addEventListener('install',event=>{event.waitUntil(self.skipWaiting());});
-self.addEventListener('activate',event=>{event.waitUntil(self.clients.claim());});
-self.addEventListener('fetch',event=>{
-  const req=event.request;
-  if(!shouldCacheRequest(req)) return;
-  event.respondWith((async()=>{
-    const cache=await caches.open(MEDIA_CACHE_NAME);
-    const hit=await cache.match(req);
-    if(hit) return hit;
-    try{
-      const res=await fetch(req);
-      if(res&&(res.ok||res.type==='opaque')) cache.put(req,res.clone()).catch(()=>{});
-      return res;
-    }catch{
-      const fallback=await cache.match(req);
-      if(fallback) return fallback;
-      throw new Error('Network failed');
-    }
-  })());
-});
-`;
 let IPFS_GWS = [...DEFAULT_IPFS_GWS];
 const IPFS_PATH_RE = /^\/?ipfs\/([a-zA-Z0-9]+)(?:\/(.*))?$/i;
 const UNSAFE_RE = /[^a-zA-Z0-9._-]/g;
@@ -1244,6 +1211,10 @@ window.clearCacheAndSettings=async function(){
   showStatus(st,'Clearing cache and gateway settings…','info');
   try{
     if(typeof caches!=='undefined') await caches.delete(MEDIA_CACHE_NAME);
+    for(const objUrl of mediaObjectUrlCache.values()){
+      try{URL.revokeObjectURL(objUrl);}catch{}
+    }
+    mediaObjectUrlCache.clear();
     localStorage.removeItem(IPFS_SETTINGS_KEY);
     IPFS_GWS=[...DEFAULT_IPFS_GWS];
     renderGatewayRows();
@@ -1253,20 +1224,100 @@ window.clearCacheAndSettings=async function(){
     showStatus(st,'Could not clear cache settings','danger');
   }
 };
-async function registerMediaCacheServiceWorker(){
-  if(!('serviceWorker' in navigator)) return;
+const mediaObjectUrlCache=new Map();
+const mediaHydrateQueued=new WeakSet();
+const mediaHydrateToken=new WeakMap();
+function shouldDiskCacheMediaUrl(raw=''){
   try{
-    const current=await navigator.serviceWorker.getRegistration();
-    if(current?.active?.scriptURL&&/\/sw\.js(?:\?|$)/i.test(current.active.scriptURL)){
-      await current.unregister();
-    }
-    const blob=new Blob([INLINE_MEDIA_SW],{type:'text/javascript'});
-    const swUrl=URL.createObjectURL(blob);
-    await navigator.serviceWorker.register(swUrl);
-    setTimeout(()=>URL.revokeObjectURL(swUrl),10000);
-  }catch(err){
-    console.warn('Service worker registration failed',err);
+    const u=new URL(raw);
+    if(!/^https?:$/i.test(u.protocol)) return false;
+    if(u.pathname.includes('/ipfs/')) return true;
+    return /\.ipfs\./i.test(u.hostname);
+  }catch{
+    return false;
   }
+}
+function mediaElementCandidates(el){
+  const out=[],seen=new Set();
+  const add=v=>{
+    const t=norm(v);
+    if(!t||seen.has(t)) return;
+    seen.add(t);
+    out.push(t);
+  };
+  add(el?.getAttribute?.('src')||'');
+  add(el?.src||'');
+  try{
+    const cands=JSON.parse(el?.dataset?.cands||'[]');
+    if(Array.isArray(cands)) cands.forEach(add);
+  }catch{}
+  return out.filter(shouldDiskCacheMediaUrl);
+}
+async function mediaObjectUrlFromCache(url){
+  if(mediaObjectUrlCache.has(url)) return mediaObjectUrlCache.get(url);
+  if(typeof caches==='undefined') return url;
+  const cache=await caches.open(MEDIA_CACHE_NAME);
+  let res=await cache.match(url);
+  if(!res){
+    try{
+      res=await fetch(url,{cache:'no-store',credentials:'omit',mode:'cors'});
+    }catch{
+      res=await fetch(url,{cache:'no-store',credentials:'omit',mode:'no-cors'});
+    }
+    if(!(res.ok||res.type==='opaque')) throw new Error('media fetch failed');
+    await cache.put(url,res.clone());
+  }
+  if(norm(res.type).toLowerCase()==='opaque') return url;
+  const blob=await res.clone().blob();
+  if(!(blob?.size>0)) return url;
+  const objUrl=URL.createObjectURL(blob);
+  mediaObjectUrlCache.set(url,objUrl);
+  return objUrl;
+}
+async function hydrateMediaElementFromDiskCache(el){
+  if(!el||typeof el!=='object') return;
+  if(el.dataset?.cacheHydrated==='1') return;
+  const token=(mediaHydrateToken.get(el)||0)+1;
+  mediaHydrateToken.set(el,token);
+  const cands=mediaElementCandidates(el);
+  if(!cands.length) return;
+  for(const src of cands){
+    try{
+      const cached=await mediaObjectUrlFromCache(src);
+      if(mediaHydrateToken.get(el)!==token) return;
+      el.dataset.cacheHydrated='1';
+      el.dataset.cacheSource=src;
+      if(norm(el.src)!==norm(cached)) el.src=cached;
+      return;
+    }catch{}
+  }
+}
+function queueMediaElementHydration(el){
+  if(!el||mediaHydrateQueued.has(el)) return;
+  mediaHydrateQueued.add(el);
+  setTimeout(()=>{
+    mediaHydrateQueued.delete(el);
+    hydrateMediaElementFromDiskCache(el).catch(()=>{});
+  },0);
+}
+function scanNodeForMediaHydration(node){
+  if(!node) return;
+  if(node.nodeType===1&&/^(IMG|VIDEO|AUDIO)$/.test(node.tagName)) queueMediaElementHydration(node);
+  if(typeof node.querySelectorAll==='function') node.querySelectorAll('img,video,audio').forEach(queueMediaElementHydration);
+}
+function initMediaDiskCacheHydration(){
+  scanNodeForMediaHydration(document.body);
+  const mo=new MutationObserver(muts=>{
+    muts.forEach(m=>{
+      if(m.type==='attributes'&&m.target&&/^(IMG|VIDEO|AUDIO)$/.test(m.target.tagName)){
+        if(m.attributeName==='src') m.target.dataset.cacheHydrated='';
+        queueMediaElementHydration(m.target);
+        return;
+      }
+      if(m.type==='childList') m.addedNodes.forEach(scanNodeForMediaHydration);
+    });
+  });
+  mo.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['src','data-cands']});
 }
 function isBlockedAddr(addr){return isAddr(addr)&&S.blocked.has(addr);}
 function blockFilterRows(rows=[]){return rows.filter(r=>!isBlockedAddr(r?.fromAddr));}
@@ -4952,7 +5003,7 @@ window.autoResize=autoResize;
 (async()=>{
   loadSocialState();
   loadIpfsSettings();
-  registerMediaCacheServiceWorker();
+  initMediaDiskCacheHydration();
   // check for stored wallet
   const stored=localStorage.getItem(WALLET_KEY);
   if(stored){
