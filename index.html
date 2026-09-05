@@ -1275,6 +1275,21 @@ async function mediaObjectUrlFromCache(url){
   mediaObjectUrlCache.set(url,objUrl);
   return objUrl;
 }
+async function primeMediaUrlInDiskCache(url){
+  if(typeof caches==='undefined') return false;
+  const cache=await caches.open(MEDIA_CACHE_NAME);
+  let res=await cache.match(url);
+  if(!res){
+    try{
+      res=await fetch(url,{cache:'no-store',credentials:'omit',mode:'cors'});
+    }catch{
+      res=await fetch(url,{cache:'no-store',credentials:'omit',mode:'no-cors'});
+    }
+    if(!(res.ok||res.type==='opaque')) throw new Error('media fetch failed');
+    await cache.put(url,res.clone());
+  }
+  return true;
+}
 async function hydrateMediaElementFromDiskCache(el){
   if(!el||typeof el!=='object') return;
   if(el.dataset?.cacheHydrated==='1') return;
@@ -1293,6 +1308,28 @@ async function hydrateMediaElementFromDiskCache(el){
     }catch{}
   }
 }
+async function primeVideoElementDiskCache(el){
+  if(!el||typeof el!=='object'||el.tagName!=='VIDEO') return;
+  const cands=mediaElementCandidates(el);
+  if(!cands.length) return;
+  const existing=norm(el.dataset?.cacheSource||'');
+  if(el.dataset?.cacheHydrated==='1'&&existing&&cands.includes(existing)) return;
+  for(const src of cands){
+    try{
+      await primeMediaUrlInDiskCache(src);
+      el.dataset.cacheHydrated='1';
+      el.dataset.cacheSource=src;
+      return;
+    }catch{}
+  }
+}
+function bindVideoDiskCachePrime(el){
+  if(!el||el.tagName!=='VIDEO'||el.dataset?.cachePrimeBound==='1') return;
+  el.dataset.cachePrimeBound='1';
+  const prime=()=>{primeVideoElementDiskCache(el).catch(()=>{});};
+  el.addEventListener('loadedmetadata',prime,{passive:true});
+  el.addEventListener('play',prime,{passive:true});
+}
 function queueMediaElementHydration(el){
   if(!el||mediaHydrateQueued.has(el)) return;
   mediaHydrateQueued.add(el);
@@ -1304,7 +1341,11 @@ function queueMediaElementHydration(el){
 function scanNodeForMediaHydration(node){
   if(!node) return;
   if(node.nodeType===1&&/^IMG$/.test(node.tagName)) queueMediaElementHydration(node);
-  if(typeof node.querySelectorAll==='function') node.querySelectorAll('img').forEach(queueMediaElementHydration);
+  if(node.nodeType===1&&/^VIDEO$/.test(node.tagName)) bindVideoDiskCachePrime(node);
+  if(typeof node.querySelectorAll==='function'){
+    node.querySelectorAll('img').forEach(queueMediaElementHydration);
+    node.querySelectorAll('video').forEach(bindVideoDiskCachePrime);
+  }
 }
 function initMediaDiskCacheHydration(){
   scanNodeForMediaHydration(document.body);
@@ -1313,6 +1354,11 @@ function initMediaDiskCacheHydration(){
       if(m.type==='attributes'&&m.target&&/^IMG$/.test(m.target.tagName)){
         if(m.attributeName==='src') m.target.dataset.cacheHydrated='';
         queueMediaElementHydration(m.target);
+        return;
+      }
+      if(m.type==='attributes'&&m.target&&/^VIDEO$/.test(m.target.tagName)){
+        if(m.attributeName==='src') m.target.dataset.cacheHydrated='';
+        bindVideoDiskCachePrime(m.target);
         return;
       }
       if(m.type==='childList') m.addedNodes.forEach(scanNodeForMediaHydration);
