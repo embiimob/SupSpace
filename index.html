@@ -1326,9 +1326,13 @@ async function primeVideoElementDiskCache(el){
 function bindVideoDiskCachePrime(el){
   if(!el||el.tagName!=='VIDEO'||el.dataset?.cachePrimeBound==='1') return;
   el.dataset.cachePrimeBound='1';
-  const prime=()=>{primeVideoElementDiskCache(el).catch(()=>{});};
-  el.addEventListener('loadedmetadata',prime,{passive:true});
-  el.addEventListener('play',prime,{passive:true});
+  const prime=()=>{
+    if(el.dataset?.cacheHydrated==='1') return;
+    if(!(el.ended||Number(el.currentTime||0)>0)) return;
+    setTimeout(()=>{primeVideoElementDiskCache(el).catch(()=>{});},500);
+  };
+  el.addEventListener('ended',prime,{passive:true});
+  el.addEventListener('pause',prime,{passive:true});
 }
 function queueMediaElementHydration(el){
   if(!el||mediaHydrateQueued.has(el)) return;
