@@ -1228,6 +1228,8 @@ window.clearCacheAndSettings=async function(){
 const mediaObjectUrlCache=new Map();
 const mediaHydrateQueued=new WeakSet();
 const mediaHydrateToken=new WeakMap();
+const videoPrimeQueue=[];
+let videoPrimeRunning=false;
 function shouldDiskCacheMediaUrl(raw=''){
   try{
     const u=new URL(raw);
@@ -1275,6 +1277,34 @@ async function mediaObjectUrlFromCache(url){
   mediaObjectUrlCache.set(url,objUrl);
   return objUrl;
 }
+async function mediaCachedObjectUrlOnly(url){
+  if(mediaObjectUrlCache.has(url)) return mediaObjectUrlCache.get(url);
+  if(typeof caches==='undefined') return '';
+  const cache=await caches.open(MEDIA_CACHE_NAME);
+  const res=await cache.match(url);
+  if(!res) return '';
+  if(norm(res.type).toLowerCase()==='opaque') return url;
+  const blob=await res.clone().blob();
+  if(!(blob?.size>0)) return '';
+  const objUrl=URL.createObjectURL(blob);
+  mediaObjectUrlCache.set(url,objUrl);
+  return objUrl;
+}
+async function primeMediaUrlInDiskCache(url){
+  if(typeof caches==='undefined') return false;
+  const cache=await caches.open(MEDIA_CACHE_NAME);
+  let res=await cache.match(url);
+  if(!res){
+    try{
+      res=await fetch(url,{cache:'no-store',credentials:'omit',mode:'cors'});
+    }catch{
+      res=await fetch(url,{cache:'no-store',credentials:'omit',mode:'no-cors'});
+    }
+    if(!(res.ok||res.type==='opaque')) throw new Error('media fetch failed');
+    await cache.put(url,res.clone());
+  }
+  return true;
+}
 async function hydrateMediaElementFromDiskCache(el){
   if(!el||typeof el!=='object') return;
   if(el.dataset?.cacheHydrated==='1') return;
@@ -1293,6 +1323,68 @@ async function hydrateMediaElementFromDiskCache(el){
     }catch{}
   }
 }
+async function primeVideoElementDiskCache(el){
+  if(!el||typeof el!=='object'||el.tagName!=='VIDEO') return;
+  const cands=mediaElementCandidates(el);
+  if(!cands.length) return;
+  const existing=norm(el.dataset?.cacheSource||'');
+  if(el.dataset?.cacheHydrated==='1'&&existing&&cands.includes(existing)) return;
+  for(const src of cands){
+    try{
+      await primeMediaUrlInDiskCache(src);
+      el.dataset.cacheHydrated='1';
+      el.dataset.cacheSource=src;
+      return;
+    }catch{}
+  }
+}
+async function hydrateVideoElementFromDiskCache(el){
+  if(!el||typeof el!=='object'||el.tagName!=='VIDEO') return false;
+  if(el.dataset?.cacheHydrated==='1'&&el.dataset?.cacheSource) return true;
+  if(Number(el.currentTime||0)>0||Number(el.readyState||0)>0) return false;
+  const cands=mediaElementCandidates(el);
+  if(!cands.length) return false;
+  for(const src of cands){
+    try{
+      const cached=await mediaCachedObjectUrlOnly(src);
+      if(!cached) continue;
+      el.dataset.cacheHydrated='1';
+      el.dataset.cacheSource=src;
+      if(norm(el.src)!==norm(cached)) el.src=cached;
+      return true;
+    }catch{}
+  }
+  return false;
+}
+function scheduleVideoDiskCachePrime(el){
+  if(!el||el.tagName!=='VIDEO') return;
+  if(el.dataset?.cacheHydrated==='1'||el.dataset?.cachePrimeQueued==='1') return;
+  el.dataset.cachePrimeQueued='1';
+  videoPrimeQueue.push(el);
+  if(videoPrimeRunning) return;
+  videoPrimeRunning=true;
+  setTimeout(async()=>{
+    try{
+      while(videoPrimeQueue.length){
+        const next=videoPrimeQueue.shift();
+        if(!next) continue;
+        next.dataset.cachePrimeQueued='';
+        try{await primeVideoElementDiskCache(next);}catch{}
+        await new Promise(r=>setTimeout(r,150));
+      }
+    }finally{
+      videoPrimeRunning=false;
+    }
+  },0);
+}
+function bindVideoDiskCachePrime(el){
+  if(!el||el.tagName!=='VIDEO'||el.dataset?.cachePrimeBound==='1') return;
+  el.dataset.cachePrimeBound='1';
+  hydrateVideoElementFromDiskCache(el).then(hit=>{
+    if(!hit) scheduleVideoDiskCachePrime(el);
+  }).catch(()=>{scheduleVideoDiskCachePrime(el);});
+  el.addEventListener('error',()=>{scheduleVideoDiskCachePrime(el);},{passive:true});
+}
 function queueMediaElementHydration(el){
   if(!el||mediaHydrateQueued.has(el)) return;
   mediaHydrateQueued.add(el);
@@ -1303,16 +1395,31 @@ function queueMediaElementHydration(el){
 }
 function scanNodeForMediaHydration(node){
   if(!node) return;
-  if(node.nodeType===1&&/^(IMG|VIDEO|AUDIO)$/.test(node.tagName)) queueMediaElementHydration(node);
-  if(typeof node.querySelectorAll==='function') node.querySelectorAll('img,video,audio').forEach(queueMediaElementHydration);
+  if(node.nodeType===1&&/^IMG$/.test(node.tagName)) queueMediaElementHydration(node);
+  if(node.nodeType===1&&/^VIDEO$/.test(node.tagName)) bindVideoDiskCachePrime(node);
+  if(typeof node.querySelectorAll==='function'){
+    node.querySelectorAll('img').forEach(queueMediaElementHydration);
+    node.querySelectorAll('video').forEach(bindVideoDiskCachePrime);
+  }
 }
 function initMediaDiskCacheHydration(){
   scanNodeForMediaHydration(document.body);
   const mo=new MutationObserver(muts=>{
     muts.forEach(m=>{
-      if(m.type==='attributes'&&m.target&&/^(IMG|VIDEO|AUDIO)$/.test(m.target.tagName)){
+      if(m.type==='attributes'&&m.target&&/^IMG$/.test(m.target.tagName)){
         if(m.attributeName==='src') m.target.dataset.cacheHydrated='';
         queueMediaElementHydration(m.target);
+        return;
+      }
+      if(m.type==='attributes'&&m.target&&/^VIDEO$/.test(m.target.tagName)){
+        if(m.attributeName==='src'){
+          m.target.dataset.cacheHydrated='';
+          m.target.dataset.cacheSource='';
+        }
+        bindVideoDiskCachePrime(m.target);
+        hydrateVideoElementFromDiskCache(m.target).then(hit=>{
+          if(!hit) scheduleVideoDiskCachePrime(m.target);
+        }).catch(()=>{scheduleVideoDiskCachePrime(m.target);});
         return;
       }
       if(m.type==='childList') m.addedNodes.forEach(scanNodeForMediaHydration);
@@ -2674,7 +2781,7 @@ function renderAttachEl(token){
   const info=attachmentPreviewCandidates(token),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls);
   if(preview&&info.kind==='image'){wrap.className='tweet-media';wrap.innerHTML=`<img ${attrs} alt="Attachment">`;}
   else if(preview&&info.kind==='audio'){wrap.className='tweet-media';wrap.innerHTML=`<audio controls ${attrs}></audio>`;}
-  else if(preview&&info.kind==='video'){wrap.className='tweet-media';wrap.innerHTML=`<video controls playsinline webkit-playsinline preload="none" ${attrs} style="width:100%"></video>`;}
+  else if(preview&&info.kind==='video'){wrap.className='tweet-media';wrap.innerHTML=`<video controls playsinline webkit-playsinline preload="auto" ${attrs} style="width:100%"></video>`;}
   else if(preview&&info.kind==='embed'){wrap.className='tweet-media tweet-media-embed';wrap.innerHTML=`<iframe src="${esc(preview)}" frameborder="0" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" loading="lazy"></iframe>`;}
   else if(preview&&info.kind==='link'){wrap.className='link-card-slot';wrap.dataset.url=preview;loadLinkCards(wrap.parentElement||wrap);}
   else if(preview){wrap.className='tweet-media-file';wrap.innerHTML=`📎 <a href="${esc(preview)}" target="_blank" rel="noopener">${esc(info.raw.slice(0,60))}</a>`;}
@@ -2745,7 +2852,7 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
     const info=attachmentPreviewCandidates(tok),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls);
     if(preview&&info.kind==='image') mediaHtml.push(`<div class="tweet-media"><img ${attrs} alt=""></div>`);
     else if(preview&&info.kind==='audio') mediaHtml.push(`<div class="tweet-media"><audio controls ${attrs}></audio></div>`);
-    else if(preview&&info.kind==='video') mediaHtml.push(`<div class="tweet-media"><video controls playsinline webkit-playsinline preload="none" ${attrs} style="width:100%"></video></div>`);
+    else if(preview&&info.kind==='video') mediaHtml.push(`<div class="tweet-media"><video controls playsinline webkit-playsinline preload="auto" ${attrs} style="width:100%"></video></div>`);
     else if(preview&&info.kind==='embed') mediaHtml.push(`<div class="tweet-media tweet-media-embed"><iframe src="${esc(preview)}" frameborder="0" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" loading="lazy"></iframe></div>`);
     else if(preview&&info.kind==='link') mediaHtml.push(`<div class="link-card-slot" data-url="${esc(preview)}"></div>`);
     else if(preview) mediaHtml.push(`<div class="tweet-media-file">📎 <a href="${esc(preview)}" target="_blank" rel="noopener">${esc(tok.slice(0,60))}</a></div>`);
@@ -3938,7 +4045,7 @@ function renderComposeAttachments(){
     const info=attachmentPreviewCandidates(tok),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls);
     if(preview&&info.kind==='image') item.innerHTML=`<img ${attrs} alt=""><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
     else if(preview&&info.kind==='audio') item.innerHTML=`<audio controls ${attrs}></audio><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
-    else if(preview&&info.kind==='video') item.innerHTML=`<video controls playsinline webkit-playsinline preload="none" ${attrs} style="max-height:100px;width:100%"></video><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
+    else if(preview&&info.kind==='video') item.innerHTML=`<video controls playsinline webkit-playsinline preload="auto" ${attrs} style="max-height:100px;width:100%"></video><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
     else if(info.kind==='retweet') item.innerHTML=`<div class="cm-attach-text">🔁 ${esc(norm(tok).slice(0,60))}</div><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
     else item.innerHTML=`<div class="cm-attach-text">${esc(norm(tok).slice(0,60))}</div><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
     prev.appendChild(item);
