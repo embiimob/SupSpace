@@ -219,6 +219,11 @@
     .tiny-link-btn{background:none;border:none;color:var(--accent);font-size:.8rem;padding:6px 0 0;cursor:pointer}
     .tiny-link-btn:hover{text-decoration:underline}
     .mobile-social-card{display:none;background:var(--surface);border-radius:16px;padding:16px;margin:12px 16px}
+    .sidebar-gear-btn{min-width:34px;padding:4px 7px!important;font-size:.95rem;line-height:1}
+    .cache-settings-box{display:flex;flex-direction:column;gap:12px}
+    .cache-settings-stat{font-size:.9rem;color:var(--muted)}
+    .gateway-row{display:flex;gap:8px;align-items:center}
+    .gateway-up-btn{width:28px;height:28px;border-radius:50%;padding:0;display:flex;align-items:center;justify-content:center}
 
     /* ── FAB ── */
     .fab{display:none;position:fixed;bottom:72px;right:16px;width:56px;height:56px;border-radius:50%;background:var(--accent);border:none;color:#fff;font-size:1.5rem;align-items:center;justify-content:center;box-shadow:0 4px 16px rgba(0,0,0,.5);z-index:50;transition:background .15s}
@@ -422,6 +427,7 @@
           <button class="btn btn-out btn-sm" style="padding:4px 8px;font-size:.78rem;" onclick="setSidebarMode('trending')">Trending</button>
           <button class="btn btn-out btn-sm" style="padding:4px 8px;font-size:.78rem;" onclick="setSidebarMode('follows')">Following</button>
           <button class="btn btn-out btn-sm" style="padding:4px 8px;font-size:.78rem;" onclick="setSidebarMode('newUsers')">New Users</button>
+          <button class="btn btn-out btn-sm sidebar-gear-btn" title="Cache & Gateways" onclick="openModal('modalCacheSettings')">⚙️</button>
         </div>
         <div id="mobileTrendingContent"><div class="trend-n">Loading…</div></div>
       </div>
@@ -460,6 +466,7 @@
         <button class="btn btn-out btn-sm" style="padding:4px 8px;font-size:.78rem;" onclick="setSidebarMode('trending')">Trending</button>
         <button class="btn btn-out btn-sm" style="padding:4px 8px;font-size:.78rem;" onclick="setSidebarMode('follows')">Following</button>
         <button class="btn btn-out btn-sm" style="padding:4px 8px;font-size:.78rem;" onclick="setSidebarMode('newUsers')">New Users</button>
+        <button class="btn btn-out btn-sm sidebar-gear-btn" title="Cache & Gateways" onclick="openModal('modalCacheSettings')">⚙️</button>
       </div>
       <div id="trendingContent"><div class="trend-n">Loading…</div></div>
     </div>
@@ -479,6 +486,32 @@
       <span class="modal-title">Wallet</span>
     </div>
     <div class="modal-body" id="walletModalBody"></div>
+  </div>
+</div>
+
+<!-- CACHE SETTINGS MODAL -->
+<div class="modal-overlay hidden" id="modalCacheSettings">
+  <div class="modal" style="max-width:640px;">
+    <div class="modal-hdr">
+      <button class="modal-x" onclick="closeModal('modalCacheSettings')">✕</button>
+      <span class="modal-title">Cache & IPFS Gateways</span>
+    </div>
+    <div class="modal-body">
+      <div class="cache-settings-box">
+        <div>
+          <div class="cache-settings-stat" id="cacheSettingsSize">Cached material: calculating…</div>
+          <div class="btn-row" style="margin-top:8px;">
+            <button class="btn btn-out btn-sm" onclick="refreshCacheSettingsSize()">Refresh Size</button>
+            <button class="btn btn-out btn-sm" onclick="clearCacheAndSettings()">Clear Cache + Gateway Settings</button>
+          </div>
+        </div>
+        <div>
+          <div class="f-label" style="margin-bottom:8px;">IPFS Gateways (top = highest priority)</div>
+          <div id="ipfsGatewayRows"></div>
+        </div>
+      </div>
+      <div id="cacheSettingsStatus" class="f-status info hidden" style="margin-top:12px;"></div>
+    </div>
   </div>
 </div>
 
@@ -690,7 +723,10 @@ const AMOUNT_PER = DUST / 1e8;
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const DELIMITERS = ['\\', '/', ':', '*', '?', '"', '<', '>', '|'];
 const CID_RE = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[1-9A-HJ-NP-Za-km-z]{20,})$/i;
-const IPFS_GWS = ['https://p2fk.io/ipfs/','https://ipfs.filebase.io/ipfs/','https://gateway.pinata.cloud/ipfs/'];
+const DEFAULT_IPFS_GWS = ['https://p2fk.io/ipfs/','https://ipfs.filebase.io/ipfs/','https://gateway.pinata.cloud/ipfs/'];
+const IPFS_SETTINGS_KEY = 'sup_ipfs_settings_v1';
+const MEDIA_CACHE_NAME = 'supspace_media_cache_v1';
+let IPFS_GWS = [...DEFAULT_IPFS_GWS];
 const IPFS_PATH_RE = /^\/?ipfs\/([a-zA-Z0-9]+)(?:\/(.*))?$/i;
 const UNSAFE_RE = /[^a-zA-Z0-9._-]/g;
 const IMG_RE = /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i;
@@ -1037,6 +1073,251 @@ function loadSocialState(){
     };
     S.newUsersCache=normalizeNewUsersCache(raw.newUsersCache||{});
   }catch{}
+}
+function normalizeGatewayUrl(raw=''){
+  const input=norm(raw);
+  if(!input) return '';
+  const prefixed=/^https?:\/\//i.test(input)?input:`https://${input}`;
+  try{
+    const u=new URL(prefixed);
+    if(!/^https?:$/i.test(u.protocol)) return '';
+    let path=norm(u.pathname||'/');
+    path=path.replace(/\/+/g,'/');
+    if(!/\/ipfs\/?$/i.test(path)) path=`${path.replace(/\/$/,'')}/ipfs/`;
+    path=path.replace(/\/?$/,'/');
+    return `${u.origin}${path}`;
+  }catch{
+    return '';
+  }
+}
+function normalizeGatewayList(raw){
+  const list=Array.isArray(raw)?raw:[];
+  const out=[],seen=new Set();
+  for(const item of list){
+    const url=normalizeGatewayUrl(item);
+    if(!url||seen.has(url.toLowerCase())) continue;
+    seen.add(url.toLowerCase());
+    out.push(url);
+    if(out.length>=3) break;
+  }
+  for(const fallback of DEFAULT_IPFS_GWS){
+    if(out.length>=3) break;
+    if(seen.has(fallback.toLowerCase())) continue;
+    out.push(fallback);
+  }
+  return out.slice(0,3);
+}
+function saveIpfsSettings(){
+  try{localStorage.setItem(IPFS_SETTINGS_KEY,JSON.stringify({gateways:[...IPFS_GWS]}));}catch{}
+}
+function loadIpfsSettings(){
+  try{
+    const raw=JSON.parse(localStorage.getItem(IPFS_SETTINGS_KEY)||'null');
+    IPFS_GWS=normalizeGatewayList(raw?.gateways);
+  }catch{
+    IPFS_GWS=[...DEFAULT_IPFS_GWS];
+  }
+}
+function formatBytes(bytes=0){
+  const n=Number(bytes||0);
+  if(!Number.isFinite(n)||n<=0) return '0 B';
+  if(n<1024) return `${Math.round(n)} B`;
+  if(n<1024*1024) return `${(n/1024).toFixed(1)} KB`;
+  if(n<1024*1024*1024) return `${(n/(1024*1024)).toFixed(2)} MB`;
+  return `${(n/(1024*1024*1024)).toFixed(2)} GB`;
+}
+async function cacheUsageSummary(){
+  if(typeof caches==='undefined') return {bytes:0,count:0,unknown:0};
+  const cache=await caches.open(MEDIA_CACHE_NAME);
+  const reqs=await cache.keys();
+  let bytes=0,known=0,unknown=0;
+  for(const req of reqs){
+    const res=await cache.match(req);
+    if(!res){unknown++;continue;}
+    const type=norm(res.type).toLowerCase();
+    if(type==='opaque'){unknown++;continue;}
+    try{
+      const blob=await res.clone().blob();
+      bytes+=blob.size||0;
+      known++;
+    }catch{
+      unknown++;
+    }
+  }
+  return{bytes,count:known,unknown};
+}
+async function refreshCacheSettingsSize(){
+  const label=$('cacheSettingsSize');
+  if(!label) return;
+  label.textContent='Cached material: calculating…';
+  try{
+    const stats=await cacheUsageSummary();
+    const extra=stats.unknown?` + ${stats.unknown} opaque item${stats.unknown===1?'':'s'}`:'';
+    label.textContent=`Cached material: ${formatBytes(stats.bytes)} (${stats.count} sized item${stats.count===1?'':'s'}${extra})`;
+  }catch{
+    label.textContent='Cached material: unavailable';
+  }
+}
+function applyGatewaySettings(gateways){
+  IPFS_GWS=normalizeGatewayList(gateways);
+  saveIpfsSettings();
+  renderGatewayRows();
+}
+function renderGatewayRows(){
+  const box=$('ipfsGatewayRows');
+  if(!box) return;
+  clr(box);
+  IPFS_GWS.forEach((gw,idx)=>{
+    const row=document.createElement('div');
+    row.className='gateway-row';
+    row.style.marginBottom='8px';
+    row.innerHTML=`
+      <button class="btn btn-out btn-sm gateway-up-btn" title="Move up" onclick="moveGatewayUp(${idx})" ${idx===0?'disabled':''}>↑</button>
+      <input class="f-input" id="ipfsGatewayInput${idx}" value="${esc(gw)}" onblur="updateGateway(${idx},this.value)" autocomplete="off">
+    `;
+    box.appendChild(row);
+  });
+}
+window.moveGatewayUp=function(idx){
+  const i=Number(idx);
+  if(!Number.isInteger(i)||i<=0||i>=IPFS_GWS.length) return;
+  const next=[...IPFS_GWS];
+  [next[i-1],next[i]]=[next[i],next[i-1]];
+  applyGatewaySettings(next);
+  showStatus($('cacheSettingsStatus'),'Gateway priority saved','good');
+};
+window.updateGateway=function(idx,val){
+  const i=Number(idx);
+  if(!Number.isInteger(i)||i<0||i>=IPFS_GWS.length) return;
+  const normalized=normalizeGatewayUrl(val);
+  if(!normalized){
+    showStatus($('cacheSettingsStatus'),'Gateway must be a valid http(s) URL','danger');
+    renderGatewayRows();
+    return;
+  }
+  const next=[...IPFS_GWS];
+  next[i]=normalized;
+  applyGatewaySettings(next);
+  showStatus($('cacheSettingsStatus'),'Gateway updated','good');
+};
+async function renderCacheSettingsUI(){
+  hideStatus($('cacheSettingsStatus'));
+  renderGatewayRows();
+  await refreshCacheSettingsSize();
+}
+window.refreshCacheSettingsSize=refreshCacheSettingsSize;
+window.clearCacheAndSettings=async function(){
+  const st=$('cacheSettingsStatus');
+  showStatus(st,'Clearing cache and gateway settings…','info');
+  try{
+    if(typeof caches!=='undefined') await caches.delete(MEDIA_CACHE_NAME);
+    for(const objUrl of mediaObjectUrlCache.values()){
+      try{URL.revokeObjectURL(objUrl);}catch{}
+    }
+    mediaObjectUrlCache.clear();
+    localStorage.removeItem(IPFS_SETTINGS_KEY);
+    IPFS_GWS=[...DEFAULT_IPFS_GWS];
+    renderGatewayRows();
+    await refreshCacheSettingsSize();
+    showStatus(st,'Cache cleared and gateway settings reset','good');
+  }catch{
+    showStatus(st,'Could not clear cache settings','danger');
+  }
+};
+const mediaObjectUrlCache=new Map();
+const mediaHydrateQueued=new WeakSet();
+const mediaHydrateToken=new WeakMap();
+function shouldDiskCacheMediaUrl(raw=''){
+  try{
+    const u=new URL(raw);
+    if(!/^https?:$/i.test(u.protocol)) return false;
+    if(u.pathname.includes('/ipfs/')) return true;
+    return /\.ipfs\./i.test(u.hostname);
+  }catch{
+    return false;
+  }
+}
+function mediaElementCandidates(el){
+  const out=[],seen=new Set();
+  const add=v=>{
+    const t=norm(v);
+    if(!t||seen.has(t)) return;
+    seen.add(t);
+    out.push(t);
+  };
+  add(el?.getAttribute?.('src')||'');
+  add(el?.src||'');
+  try{
+    const cands=JSON.parse(el?.dataset?.cands||'[]');
+    if(Array.isArray(cands)) cands.forEach(add);
+  }catch{}
+  return out.filter(shouldDiskCacheMediaUrl);
+}
+async function mediaObjectUrlFromCache(url){
+  if(mediaObjectUrlCache.has(url)) return mediaObjectUrlCache.get(url);
+  if(typeof caches==='undefined') return url;
+  const cache=await caches.open(MEDIA_CACHE_NAME);
+  let res=await cache.match(url);
+  if(!res){
+    try{
+      res=await fetch(url,{cache:'no-store',credentials:'omit',mode:'cors'});
+    }catch{
+      res=await fetch(url,{cache:'no-store',credentials:'omit',mode:'no-cors'});
+    }
+    if(!(res.ok||res.type==='opaque')) throw new Error('media fetch failed');
+    await cache.put(url,res.clone());
+  }
+  if(norm(res.type).toLowerCase()==='opaque') return url;
+  const blob=await res.clone().blob();
+  if(!(blob?.size>0)) return url;
+  const objUrl=URL.createObjectURL(blob);
+  mediaObjectUrlCache.set(url,objUrl);
+  return objUrl;
+}
+async function hydrateMediaElementFromDiskCache(el){
+  if(!el||typeof el!=='object') return;
+  if(el.dataset?.cacheHydrated==='1') return;
+  const token=(mediaHydrateToken.get(el)||0)+1;
+  mediaHydrateToken.set(el,token);
+  const cands=mediaElementCandidates(el);
+  if(!cands.length) return;
+  for(const src of cands){
+    try{
+      const cached=await mediaObjectUrlFromCache(src);
+      if(mediaHydrateToken.get(el)!==token) return;
+      el.dataset.cacheHydrated='1';
+      el.dataset.cacheSource=src;
+      if(norm(el.src)!==norm(cached)) el.src=cached;
+      return;
+    }catch{}
+  }
+}
+function queueMediaElementHydration(el){
+  if(!el||mediaHydrateQueued.has(el)) return;
+  mediaHydrateQueued.add(el);
+  setTimeout(()=>{
+    mediaHydrateQueued.delete(el);
+    hydrateMediaElementFromDiskCache(el).catch(()=>{});
+  },0);
+}
+function scanNodeForMediaHydration(node){
+  if(!node) return;
+  if(node.nodeType===1&&/^(IMG|VIDEO|AUDIO)$/.test(node.tagName)) queueMediaElementHydration(node);
+  if(typeof node.querySelectorAll==='function') node.querySelectorAll('img,video,audio').forEach(queueMediaElementHydration);
+}
+function initMediaDiskCacheHydration(){
+  scanNodeForMediaHydration(document.body);
+  const mo=new MutationObserver(muts=>{
+    muts.forEach(m=>{
+      if(m.type==='attributes'&&m.target&&/^(IMG|VIDEO|AUDIO)$/.test(m.target.tagName)){
+        if(m.attributeName==='src') m.target.dataset.cacheHydrated='';
+        queueMediaElementHydration(m.target);
+        return;
+      }
+      if(m.type==='childList') m.addedNodes.forEach(scanNodeForMediaHydration);
+    });
+  });
+  mo.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['src','data-cands']});
 }
 function isBlockedAddr(addr){return isAddr(addr)&&S.blocked.has(addr);}
 function blockFilterRows(rows=[]){return rows.filter(r=>!isBlockedAddr(r?.fromAddr));}
@@ -4568,6 +4849,7 @@ function openModal(id){
   const el=$(id);if(!el) return;
   el.classList.remove('hidden');
   if(id==='modalWallet'){renderWalletUI($('walletModalBody'));}
+  if(id==='modalCacheSettings'){renderCacheSettingsUI().catch(()=>{});}
   if(id==='modalCompose'){
     const kw=$('cmGifKeyword');
     if(kw) kw.value='#gif';
@@ -4663,7 +4945,8 @@ document.addEventListener('keydown',e=>{
       ...$('modalProfile')?[$('modalProfile')]:[],
       ...$('modalProfileEdit')?[$('modalProfileEdit')]:[],
       ...$('modalCompose')?[$('modalCompose')]:[],
-      ...$('modalWallet')?[$('modalWallet')]:[]]
+      ...$('modalWallet')?[$('modalWallet')]:[],
+      ...$('modalCacheSettings')?[$('modalCacheSettings')]:[]]
       .filter(m=>!m.classList.contains('hidden'));
     if(open.length) closeModal(open[open.length-1].id);
   }
@@ -4719,6 +5002,8 @@ window.autoResize=autoResize;
 ═══════════════════════════════════════════════════ */
 (async()=>{
   loadSocialState();
+  loadIpfsSettings();
+  initMediaDiskCacheHydration();
   // check for stored wallet
   const stored=localStorage.getItem(WALLET_KEY);
   if(stored){
