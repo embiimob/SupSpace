@@ -726,6 +726,39 @@ const CID_RE = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[1-9A-HJ-NP-Za-km-z]{20,})$/i;
 const DEFAULT_IPFS_GWS = ['https://p2fk.io/ipfs/','https://ipfs.filebase.io/ipfs/','https://gateway.pinata.cloud/ipfs/'];
 const IPFS_SETTINGS_KEY = 'sup_ipfs_settings_v1';
 const MEDIA_CACHE_NAME = 'supspace_media_cache_v1';
+const INLINE_MEDIA_SW = `
+const MEDIA_CACHE_NAME = '${MEDIA_CACHE_NAME}';
+function shouldCacheRequest(request){
+  if(!request||request.method!=='GET') return false;
+  if(request.headers?.has('range')) return false;
+  let url;
+  try{url=new URL(request.url);}catch{return false;}
+  if(!/^https?:$/i.test(url.protocol)) return false;
+  if(url.pathname.includes('/ipfs/')) return true;
+  if(request.destination==='image') return true;
+  return false;
+}
+self.addEventListener('install',event=>{event.waitUntil(self.skipWaiting());});
+self.addEventListener('activate',event=>{event.waitUntil(self.clients.claim());});
+self.addEventListener('fetch',event=>{
+  const req=event.request;
+  if(!shouldCacheRequest(req)) return;
+  event.respondWith((async()=>{
+    const cache=await caches.open(MEDIA_CACHE_NAME);
+    const hit=await cache.match(req);
+    if(hit) return hit;
+    try{
+      const res=await fetch(req);
+      if(res&&(res.ok||res.type==='opaque')) cache.put(req,res.clone()).catch(()=>{});
+      return res;
+    }catch{
+      const fallback=await cache.match(req);
+      if(fallback) return fallback;
+      throw new Error('Network failed');
+    }
+  })());
+});
+`;
 let IPFS_GWS = [...DEFAULT_IPFS_GWS];
 const IPFS_PATH_RE = /^\/?ipfs\/([a-zA-Z0-9]+)(?:\/(.*))?$/i;
 const UNSAFE_RE = /[^a-zA-Z0-9._-]/g;
@@ -1223,7 +1256,14 @@ window.clearCacheAndSettings=async function(){
 async function registerMediaCacheServiceWorker(){
   if(!('serviceWorker' in navigator)) return;
   try{
-    await navigator.serviceWorker.register('./sw.js');
+    const current=await navigator.serviceWorker.getRegistration();
+    if(current?.active?.scriptURL&&/\/sw\.js(?:\?|$)/i.test(current.active.scriptURL)){
+      await current.unregister();
+    }
+    const blob=new Blob([INLINE_MEDIA_SW],{type:'text/javascript'});
+    const swUrl=URL.createObjectURL(blob);
+    await navigator.serviceWorker.register(swUrl);
+    setTimeout(()=>URL.revokeObjectURL(swUrl),10000);
   }catch(err){
     console.warn('Service worker registration failed',err);
   }
