@@ -1228,6 +1228,8 @@ window.clearCacheAndSettings=async function(){
 const mediaObjectUrlCache=new Map();
 const mediaHydrateQueued=new WeakSet();
 const mediaHydrateToken=new WeakMap();
+const videoPrimeQueue=[];
+let videoPrimeRunning=false;
 function shouldDiskCacheMediaUrl(raw=''){
   try{
     const u=new URL(raw);
@@ -1323,16 +1325,35 @@ async function primeVideoElementDiskCache(el){
     }catch{}
   }
 }
+function scheduleVideoDiskCachePrime(el){
+  if(!el||el.tagName!=='VIDEO') return;
+  if(el.dataset?.cacheHydrated==='1'||el.dataset?.cachePrimeQueued==='1') return;
+  el.dataset.cachePrimeQueued='1';
+  videoPrimeQueue.push(el);
+  if(videoPrimeRunning) return;
+  videoPrimeRunning=true;
+  setTimeout(async()=>{
+    try{
+      while(videoPrimeQueue.length){
+        const next=videoPrimeQueue.shift();
+        if(!next) continue;
+        next.dataset.cachePrimeQueued='';
+        try{await primeVideoElementDiskCache(next);}catch{}
+        await new Promise(r=>setTimeout(r,150));
+      }
+    }finally{
+      videoPrimeRunning=false;
+    }
+  },250);
+}
 function bindVideoDiskCachePrime(el){
   if(!el||el.tagName!=='VIDEO'||el.dataset?.cachePrimeBound==='1') return;
   el.dataset.cachePrimeBound='1';
-  const prime=()=>{
-    if(el.dataset?.cacheHydrated==='1') return;
-    if(!(el.ended||Number(el.currentTime||0)>0)) return;
-    setTimeout(()=>{primeVideoElementDiskCache(el).catch(()=>{});},500);
-  };
-  el.addEventListener('ended',prime,{passive:true});
+  const prime=()=>scheduleVideoDiskCachePrime(el);
+  prime();
+  el.addEventListener('play',prime,{passive:true});
   el.addEventListener('pause',prime,{passive:true});
+  el.addEventListener('ended',prime,{passive:true});
 }
 function queueMediaElementHydration(el){
   if(!el||mediaHydrateQueued.has(el)) return;
@@ -1363,6 +1384,7 @@ function initMediaDiskCacheHydration(){
       if(m.type==='attributes'&&m.target&&/^VIDEO$/.test(m.target.tagName)){
         if(m.attributeName==='src') m.target.dataset.cacheHydrated='';
         bindVideoDiskCachePrime(m.target);
+        scheduleVideoDiskCachePrime(m.target);
         return;
       }
       if(m.type==='childList') m.addedNodes.forEach(scanNodeForMediaHydration);
