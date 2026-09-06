@@ -380,8 +380,8 @@
       <div class="col-header">
         <div class="col-header-inner"><span class="col-title">Home</span></div>
         <div class="tab-bar">
-          <button class="tab-btn" id="homeTabTrending" onclick="setHomeTab('trending')">For you</button>
-          <button class="tab-btn active" id="homeTabRecent" onclick="setHomeTab('recent')">Recent</button>
+          <button type="button" class="tab-btn" id="homeTabTrending" onclick="setHomeTab('trending')">For you</button>
+          <button type="button" class="tab-btn active" id="homeTabRecent" onclick="setHomeTab('recent')">Recent</button>
         </div>
       </div>
       <div class="inline-compose hidden" id="inlineCompose">
@@ -816,6 +816,7 @@ const S = {
   kwCache: new Map(),
   trendingRootSearchCache: {rows:[],maxQty:0,reqs:new Map()},
   forYouCache: {rows:[],maxQty:0,ts:0,followedKey:'',reqs:new Map()},
+  recentHomeCache: {rows:[],maxQty:0,ts:0,reqs:new Map()},
   followed: new Set(),
   blocked: new Set(),
   communityCache: {ts:0,posts:[]},
@@ -1226,6 +1227,8 @@ window.clearCacheAndSettings=async function(){
   }
 };
 const mediaObjectUrlCache=new Map();
+const mediaDiskCacheReqs=new Map();
+const mediaObjectUrlReqs=new Map();
 const mediaHydrateQueued=new WeakSet();
 const mediaHydrateToken=new WeakMap();
 const videoPrimeQueue=[];
@@ -1248,6 +1251,7 @@ function mediaElementCandidates(el){
     seen.add(t);
     out.push(t);
   };
+  add(el?.dataset?.cacheSource||'');
   add(el?.getAttribute?.('src')||'');
   add(el?.src||'');
   try{
@@ -1258,52 +1262,60 @@ function mediaElementCandidates(el){
 }
 async function mediaObjectUrlFromCache(url){
   if(mediaObjectUrlCache.has(url)) return mediaObjectUrlCache.get(url);
+  if(mediaObjectUrlReqs.has(url)) return mediaObjectUrlReqs.get(url);
   if(typeof caches==='undefined') return url;
-  const cache=await caches.open(MEDIA_CACHE_NAME);
-  let res=await cache.match(url);
-  if(!res){
-    try{
-      res=await fetch(url,{cache:'no-store',credentials:'omit',mode:'cors'});
-    }catch{
-      res=await fetch(url,{cache:'no-store',credentials:'omit',mode:'no-cors'});
-    }
-    if(!(res.ok||res.type==='opaque')) throw new Error('media fetch failed');
-    await cache.put(url,res.clone());
-  }
-  if(norm(res.type).toLowerCase()==='opaque') return url;
-  const blob=await res.clone().blob();
-  if(!(blob?.size>0)) return url;
-  const objUrl=URL.createObjectURL(blob);
-  mediaObjectUrlCache.set(url,objUrl);
-  return objUrl;
+  const req=(async()=>{
+    await primeMediaUrlInDiskCache(url);
+    const cache=await caches.open(MEDIA_CACHE_NAME);
+    const res=await cache.match(url);
+    if(!res) return url;
+    if(norm(res.type).toLowerCase()==='opaque') return url;
+    const blob=await res.clone().blob();
+    if(!(blob?.size>0)) return url;
+    const objUrl=URL.createObjectURL(blob);
+    mediaObjectUrlCache.set(url,objUrl);
+    return objUrl;
+  })().finally(()=>mediaObjectUrlReqs.delete(url));
+  mediaObjectUrlReqs.set(url,req);
+  return req;
 }
 async function mediaCachedObjectUrlOnly(url){
   if(mediaObjectUrlCache.has(url)) return mediaObjectUrlCache.get(url);
+  if(mediaObjectUrlReqs.has(url)) return mediaObjectUrlReqs.get(url);
   if(typeof caches==='undefined') return '';
-  const cache=await caches.open(MEDIA_CACHE_NAME);
-  const res=await cache.match(url);
-  if(!res) return '';
-  if(norm(res.type).toLowerCase()==='opaque') return url;
-  const blob=await res.clone().blob();
-  if(!(blob?.size>0)) return '';
-  const objUrl=URL.createObjectURL(blob);
-  mediaObjectUrlCache.set(url,objUrl);
-  return objUrl;
+  const req=(async()=>{
+    const cache=await caches.open(MEDIA_CACHE_NAME);
+    const res=await cache.match(url);
+    if(!res) return '';
+    if(norm(res.type).toLowerCase()==='opaque') return url;
+    const blob=await res.clone().blob();
+    if(!(blob?.size>0)) return '';
+    const objUrl=URL.createObjectURL(blob);
+    mediaObjectUrlCache.set(url,objUrl);
+    return objUrl;
+  })().finally(()=>mediaObjectUrlReqs.delete(url));
+  mediaObjectUrlReqs.set(url,req);
+  return req;
 }
 async function primeMediaUrlInDiskCache(url){
   if(typeof caches==='undefined') return false;
-  const cache=await caches.open(MEDIA_CACHE_NAME);
-  let res=await cache.match(url);
-  if(!res){
-    try{
-      res=await fetch(url,{cache:'no-store',credentials:'omit',mode:'cors'});
-    }catch{
-      res=await fetch(url,{cache:'no-store',credentials:'omit',mode:'no-cors'});
+  if(mediaDiskCacheReqs.has(url)) return mediaDiskCacheReqs.get(url);
+  const req=(async()=>{
+    const cache=await caches.open(MEDIA_CACHE_NAME);
+    let res=await cache.match(url);
+    if(!res){
+      try{
+        res=await fetch(url,{cache:'no-store',credentials:'omit',mode:'cors'});
+      }catch{
+        res=await fetch(url,{cache:'no-store',credentials:'omit',mode:'no-cors'});
+      }
+      if(!(res.ok||res.type==='opaque')) throw new Error('media fetch failed');
+      await cache.put(url,res.clone());
     }
-    if(!(res.ok||res.type==='opaque')) throw new Error('media fetch failed');
-    await cache.put(url,res.clone());
-  }
-  return true;
+    return true;
+  })().finally(()=>mediaDiskCacheReqs.delete(url));
+  mediaDiskCacheReqs.set(url,req);
+  return req;
 }
 async function hydrateMediaElementFromDiskCache(el){
   if(!el||typeof el!=='object') return;
@@ -1407,7 +1419,14 @@ function initMediaDiskCacheHydration(){
   const mo=new MutationObserver(muts=>{
     muts.forEach(m=>{
       if(m.type==='attributes'&&m.target&&/^IMG$/.test(m.target.tagName)){
-        if(m.attributeName==='src') m.target.dataset.cacheHydrated='';
+        if(m.attributeName==='src'){
+          const nextSrc=norm(m.target.getAttribute('src')||m.target.src||'');
+          if(/^blob:/i.test(nextSrc)&&norm(m.target.dataset?.cacheSource||'')){
+            m.target.dataset.cacheHydrated='1';
+            return;
+          }
+          m.target.dataset.cacheHydrated='';
+        }
         queueMediaElementHydration(m.target);
         return;
       }
@@ -2323,6 +2342,9 @@ function clearTrendingRootSearchCache(){
 function clearForYouCache(){
   S.forYouCache={rows:[],maxQty:0,ts:0,followedKey:'',reqs:new Map()};
 }
+function clearRecentHomeCache(){
+  S.recentHomeCache={rows:[],maxQty:0,ts:0,reqs:new Map()};
+}
 function normalizeTrendingTerm(raw){
   const term=norm(raw).replace(/\s+/g,' ').trim();
   if(!term) return null;
@@ -2565,6 +2587,28 @@ async function searchRoots(q,qty=12,skip=0){
 }
 async function fetchHomeRootsPage(tab='recent',skip=0,qty=HOME_PAGE_SIZE){
   const safeSkip=Math.max(0,Number(skip)||0);
+  if(tab==='recent'){
+    const wantQty=safeSkip+Math.max(1,Number(qty)||HOME_PAGE_SIZE);
+    const cache=S.recentHomeCache||(S.recentHomeCache={rows:[],maxQty:0,ts:0,reqs:new Map()});
+    const freshMs=30*1000;
+    const cacheFresh=Date.now()-Number(cache.ts||0)<freshMs;
+    if(cacheFresh&&cache.maxQty>=wantQty) return (cache.rows||[]).slice(safeSkip,safeSkip+qty);
+    const pending=[...cache.reqs.entries()].sort((a,b)=>b[0]-a[0]).find(([q])=>q>=wantQty)?.[1];
+    if(pending){
+      const rows=await pending.catch(()=>[]);
+      return (Array.isArray(rows)?rows:[]).slice(safeSkip,safeSkip+qty);
+    }
+    const req=(async()=>{
+      const rows=(await searchRoots('',wantQty,0)).map(r=>normalizeRoot(r?.Root||r?.root||r)).filter(Boolean);
+      cache.rows=rows;
+      cache.maxQty=rows.length;
+      cache.ts=Date.now();
+      return rows;
+    })().finally(()=>cache.reqs.delete(wantQty));
+    cache.reqs.set(wantQty,req);
+    const rows=await req.catch(()=>[]);
+    return (Array.isArray(rows)?rows:[]).slice(safeSkip,safeSkip+qty);
+  }
   if(tab==='trending'){
     const forYouQty=safeSkip+Math.max(1,Number(qty)||HOME_PAGE_SIZE);
     const key=[...S.followed].filter(a=>!isBlockedAddr(a)).sort().join('|');
@@ -2666,6 +2710,7 @@ function startPendingTxPoller() {
       } catch (e) {}
     }
     if (needsRender) {
+      clearRecentHomeCache();
       if (S.view === 'home') loadHomeFeed();
       if (S.view === 'myprofile') loadMyProfile();
       if (S.view === 'community') loadCommunityFeed();
@@ -3225,7 +3270,7 @@ function buildProfilePageEl(profile, official, posts=[], ownProfile=false, extra
 
   const tabBar=document.createElement('div');
   tabBar.className='tab-bar';
-  tabBar.innerHTML=`<button class="tab-btn active">Posts</button>`;
+  tabBar.innerHTML=`<button type="button" class="tab-btn active">Posts</button>`;
   wrap.appendChild(tabBar);
   const feedWrap=document.createElement('div');
   feedWrap.dataset.profileFeed='1';
@@ -4163,6 +4208,7 @@ async function submitCompose(){
     };
     S.pendingTxs.set(txid, { type: 'post', status: 'broadcasting', root: optimisticRoot });
 
+    clearRecentHomeCache();
     if (S.view === 'home') loadHomeFeed();
     if (S.view === 'myprofile') loadMyProfile();
     if (S.view === 'community') loadCommunityFeed();
@@ -4200,6 +4246,7 @@ async function submitInlinePost(){
     };
     S.pendingTxs.set(txid, { type: 'post', status: 'broadcasting', root: optimisticRoot });
 
+    clearRecentHomeCache();
     if (S.view === 'home') loadHomeFeed();
     if (S.view === 'myprofile') loadMyProfile();
     if (S.view === 'community') loadCommunityFeed();
@@ -4275,11 +4322,13 @@ async function loadMyProfile(){
 }
 
 window.setHomeTab = function(tab) {
+  if(tab!=='trending'&&tab!=='recent') return;
   const reselect=S.homeTab===tab;
   if(reselect&&tab==='trending'){
     clearForYouCache();
     clearTrendingRootSearchCache();
   }
+  if(tab==='recent') clearRecentHomeCache();
   S.homeTab = tab;
   document.getElementById('homeTabTrending').classList.toggle('active', tab === 'trending');
   document.getElementById('homeTabRecent').classList.toggle('active', tab === 'recent');
@@ -4996,6 +5045,7 @@ document.querySelectorAll('.nav-item').forEach(btn=>{
 $('brandHomeBtn')?.addEventListener('click',()=>{
   clearTrendingRootSearchCache();
   clearForYouCache();
+  clearRecentHomeCache();
   S.feedLoaded=false;
   switchView('home');
 });
