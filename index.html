@@ -5210,6 +5210,7 @@ window.autoResize=autoResize;
 (async()=>{
   loadSocialState();
   loadIpfsSettings();
+  installIosOverscrollGuard();
   initMediaDiskCacheHydration();
   // check for stored wallet
   const stored=localStorage.getItem(WALLET_KEY);
