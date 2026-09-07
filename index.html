@@ -727,7 +727,15 @@ const CID_RE = /^(Qm[1-9A-HJ-NP-Za-km-z]{44}|bafy[1-9A-HJ-NP-Za-km-z]{20,})$/i;
 const DEFAULT_IPFS_GWS = ['https://p2fk.io/ipfs/','https://ipfs.filebase.io/ipfs/','https://gateway.pinata.cloud/ipfs/'];
 const IPFS_SETTINGS_KEY = 'sup_ipfs_settings_v1';
 const MEDIA_CACHE_NAME = 'supspace_media_cache_v1';
+const STALE_CIDS_KEY = 'sup_stale_cids_v1';
 let IPFS_GWS = [...DEFAULT_IPFS_GWS];
+let staleCids;
+try { staleCids = new Set(JSON.parse(localStorage.getItem(STALE_CIDS_KEY) || '[]')); } catch { staleCids = new Set(); }
+window.staleCids = staleCids;
+function markCidStale(cid) { if (!cid) return; staleCids.add(cid); try { localStorage.setItem(STALE_CIDS_KEY, JSON.stringify([...staleCids])); } catch {} }
+window.markCidStale = markCidStale;
+function isCidStale(cid) { return cid ? staleCids.has(cid) : false; }
+window.isCidStale = isCidStale;
 const IPFS_PATH_RE = /^\/?ipfs\/([a-zA-Z0-9]+)(?:\/(.*))?$/i;
 const UNSAFE_RE = /[^a-zA-Z0-9._-]/g;
 const IMG_RE = /\.(png|jpe?g|gif|webp|bmp|svg|avif)$/i;
@@ -1255,6 +1263,8 @@ window.clearCacheAndSettings=async function(){
     }
     mediaObjectUrlCache.clear();
     localStorage.removeItem(IPFS_SETTINGS_KEY);
+    localStorage.removeItem(STALE_CIDS_KEY);
+    staleCids.clear();
     IPFS_GWS=[...DEFAULT_IPFS_GWS];
     renderGatewayRows();
     await refreshCacheSettingsSize();
@@ -1280,6 +1290,12 @@ function shouldDiskCacheMediaUrl(raw=''){
     return false;
   }
 }
+function filterStaleCandidates(cands) {
+  return cands.filter(src => {
+    const cid = extractCidFromUrl(src);
+    return !(cid && isCidStale(cid));
+  });
+}
 function mediaElementCandidates(el){
   const out=[],seen=new Set();
   const add=v=>{
@@ -1295,7 +1311,7 @@ function mediaElementCandidates(el){
     const cands=JSON.parse(el?.dataset?.cands||'[]');
     if(Array.isArray(cands)) cands.forEach(add);
   }catch{}
-  return out.filter(shouldDiskCacheMediaUrl);
+  return filterStaleCandidates(out.filter(shouldDiskCacheMediaUrl));
 }
 async function mediaObjectUrlFromCache(url){
   if(mediaObjectUrlCache.has(url)) return mediaObjectUrlCache.get(url);
@@ -1336,6 +1352,8 @@ async function mediaCachedObjectUrlOnly(url){
 }
 async function primeMediaUrlInDiskCache(url){
   if(typeof caches==='undefined') return false;
+  const cid = extractCidFromUrl(url);
+  if (cid && isCidStale(cid)) throw new Error('stale cid');
   if(mediaDiskCacheReqs.has(url)) return mediaDiskCacheReqs.get(url);
   const req=(async()=>{
     const cache=await caches.open(MEDIA_CACHE_NAME);
@@ -1361,7 +1379,15 @@ async function hydrateMediaElementFromDiskCache(el){
   mediaHydrateToken.set(el,token);
   const cands=mediaElementCandidates(el);
   if(!cands.length) return;
+  let hasCid = false;
+  let failedCid = null;
   for(const src of cands){
+    const cid = extractCidFromUrl(src);
+    if (cid) {
+      hasCid = true;
+      failedCid = cid;
+      if (isCidStale(cid)) continue;
+    }
     try{
       const cached=await mediaObjectUrlFromCache(src);
       if(mediaHydrateToken.get(el)!==token) return;
@@ -1371,6 +1397,9 @@ async function hydrateMediaElementFromDiskCache(el){
       return;
     }catch{}
   }
+  if (hasCid && failedCid) {
+    markCidStale(failedCid);
+  }
 }
 async function primeVideoElementDiskCache(el){
   if(!el||typeof el!=='object'||el.tagName!=='VIDEO') return;
@@ -1378,7 +1407,15 @@ async function primeVideoElementDiskCache(el){
   if(!cands.length) return;
   const existing=norm(el.dataset?.cacheSource||'');
   if(el.dataset?.cacheHydrated==='1'&&existing&&cands.includes(existing)) return;
+  let hasCid = false;
+  let failedCid = null;
   for(const src of cands){
+    const cid = extractCidFromUrl(src);
+    if (cid) {
+      hasCid = true;
+      failedCid = cid;
+      if (isCidStale(cid)) continue;
+    }
     try{
       await primeMediaUrlInDiskCache(src);
       el.dataset.cacheHydrated='1';
@@ -1386,6 +1423,7 @@ async function primeVideoElementDiskCache(el){
       return;
     }catch{}
   }
+  if (hasCid && failedCid) markCidStale(failedCid);
 }
 async function hydrateVideoElementFromDiskCache(el){
   if(!el||typeof el!=='object'||el.tagName!=='VIDEO') return false;
@@ -1393,7 +1431,15 @@ async function hydrateVideoElementFromDiskCache(el){
   if(Number(el.currentTime||0)>0||Number(el.readyState||0)>0) return false;
   const cands=mediaElementCandidates(el);
   if(!cands.length) return false;
+  let hasCid = false;
+  let failedCid = null;
   for(const src of cands){
+    const cid = extractCidFromUrl(src);
+    if (cid) {
+      hasCid = true;
+      failedCid = cid;
+      if (isCidStale(cid)) continue;
+    }
     try{
       const cached=await mediaCachedObjectUrlOnly(src);
       if(!cached) continue;
@@ -1403,6 +1449,7 @@ async function hydrateVideoElementFromDiskCache(el){
       return true;
     }catch{}
   }
+  if (hasCid && failedCid) markCidStale(failedCid);
   return false;
 }
 function scheduleVideoDiskCachePrime(el){
@@ -1444,10 +1491,10 @@ function queueMediaElementHydration(el){
 }
 function scanNodeForMediaHydration(node){
   if(!node) return;
-  if(node.nodeType===1&&/^IMG$/.test(node.tagName)) queueMediaElementHydration(node);
+  if(node.nodeType===1&&/^(IMG|AUDIO)$/.test(node.tagName)) queueMediaElementHydration(node);
   if(node.nodeType===1&&/^VIDEO$/.test(node.tagName)) bindVideoDiskCachePrime(node);
   if(typeof node.querySelectorAll==='function'){
-    node.querySelectorAll('img').forEach(queueMediaElementHydration);
+    node.querySelectorAll('img, audio').forEach(queueMediaElementHydration);
     node.querySelectorAll('video').forEach(bindVideoDiskCachePrime);
   }
 }
@@ -1455,7 +1502,7 @@ function initMediaDiskCacheHydration(){
   scanNodeForMediaHydration(document.body);
   const mo=new MutationObserver(muts=>{
     muts.forEach(m=>{
-      if(m.type==='attributes'&&m.target&&/^IMG$/.test(m.target.tagName)){
+      if(m.type==='attributes'&&m.target&&/^(IMG|AUDIO)$/.test(m.target.tagName)){
         if(m.attributeName==='src'){
           const nextSrc=norm(m.target.getAttribute('src')||m.target.src||'');
           if(/^blob:/i.test(nextSrc)&&norm(m.target.dataset?.cacheSource||'')){
@@ -2112,6 +2159,10 @@ function extractIpfsParts(v){
   try{const u=new URL(input);const hs=norm(u.hostname).split('.ipfs.');if(hs.length>1&&CID_RE.test(hs[0]))return{cid:hs[0],path:norm(u.pathname).replace(/^\/+/,'')};const pm=norm(u.pathname).match(IPFS_PATH_RE);if(pm)return{cid:pm[1],path:norm(pm[2]||'')};}catch{}
   return null;
 }
+function extractCidFromUrl(url) {
+  const p = extractIpfsParts(url);
+  return p ? p.cid : null;
+}
 function normOnChain(v){const t=norm(v);const m=t.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})(?:[\\/]([^<>]+))?$/);if(!m)return null;const chain=norm(m[1]||'');const txid=m[2].toLowerCase();const path=norm(m[3]||'').replace(/^\/+/,'').replace(UNSAFE_RE,'');return`${chain?chain.toUpperCase()+':':''}${txid}${path?'/'+path:''}`;}
 function onchainFileUrl(txid,path=''){
   const safePath=norm(path).replace(/^\/+/,'').split('/').filter(Boolean).map(p=>encodeURIComponent(p)).join('/');
@@ -2298,6 +2349,8 @@ function attachmentPreviewCandidates(token){
 function mediaAttrs(urls=[]){
   const [first,...rest]=urls.filter(Boolean);
   if(!first) return '';
+  const cid = extractCidFromUrl(first);
+  if (cid) return `data-cands="${esc(JSON.stringify([first, ...rest]))}" onerror="media_fallback(this)"`;
   if(!rest.length) return `src="${esc(first)}"`;
   return `src="${esc(first)}" data-cands="${esc(JSON.stringify(rest))}" onerror="media_fallback(this)"`;
 }
@@ -2335,6 +2388,8 @@ function profileImgAttrs(ref){
   if(!cands.length) return `src="${FALLBACK_AVI}"`;
   const [first,...rest]=cands;
   const fallbacks=[...rest,FALLBACK_AVI];
+  const cid = extractCidFromUrl(first);
+  if (cid) return `src="${FALLBACK_AVI}" data-cands="${esc(JSON.stringify([first,...fallbacks]))}" onerror="pi_err(this)"`;
   return`src="${esc(first)}" data-cands="${esc(JSON.stringify(fallbacks))}" onerror="pi_err(this)"`;
 }
 // Cascade onerror handler - advances through data-cands list
@@ -2861,7 +2916,7 @@ window.calcPoll=async function(txid,btn){
 function renderAttachEl(token){
   const wrap=document.createElement('div');
   const info=attachmentPreviewCandidates(token),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls);
-  if(preview&&info.kind==='image'){wrap.className='tweet-media';wrap.innerHTML=`<img ${attrs} alt="Attachment">`;}
+  if(preview&&info.kind==='image'){wrap.className='tweet-media';wrap.innerHTML=`<img ${attrs} alt="Attachment" ${extractCidFromUrl(preview)?`src="${FALLBACK_AVI}"`:''}>`;}
   else if(preview&&info.kind==='audio'){wrap.className='tweet-media';wrap.innerHTML=`<audio controls ${attrs}></audio>`;}
   else if(preview&&info.kind==='video'){wrap.className='tweet-media';wrap.innerHTML=`<video controls playsinline webkit-playsinline preload="auto" ${attrs} style="width:100%"></video>`;}
   else if(preview&&info.kind==='embed'){wrap.className='tweet-media tweet-media-embed';wrap.innerHTML=`<iframe src="${esc(preview)}" frameborder="0" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" loading="lazy"></iframe>`;}
@@ -2932,7 +2987,7 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
   const mediaHtml=[];
   [...attachments,...root.files.map(f=>`${root.txId}/${f}`),...links].forEach(tok=>{
     const info=attachmentPreviewCandidates(tok),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls);
-    if(preview&&info.kind==='image') mediaHtml.push(`<div class="tweet-media"><img ${attrs} alt=""></div>`);
+    if(preview&&info.kind==='image') mediaHtml.push(`<div class="tweet-media"><img ${attrs} alt="" ${extractCidFromUrl(preview)?`src="${FALLBACK_AVI}"`:''}></div>`);
     else if(preview&&info.kind==='audio') mediaHtml.push(`<div class="tweet-media"><audio controls ${attrs}></audio></div>`);
     else if(preview&&info.kind==='video') mediaHtml.push(`<div class="tweet-media"><video controls playsinline webkit-playsinline preload="auto" ${attrs} style="width:100%"></video></div>`);
     else if(preview&&info.kind==='embed') mediaHtml.push(`<div class="tweet-media tweet-media-embed"><iframe src="${esc(preview)}" frameborder="0" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" loading="lazy"></iframe></div>`);
@@ -3788,8 +3843,8 @@ async function validateProfileImage(){
     if(prev)prev.classList.remove('hidden');
     if(img){
       const cands=profileImgCandidates(norm_.canonical);
-      img.src=cands[0]||norm_.preview||norm_.canonical;
-      img.dataset.cands=JSON.stringify([...cands.slice(1),FALLBACK_AVI]);
+      img.src=FALLBACK_AVI;
+      img.dataset.cands=JSON.stringify([...cands,FALLBACK_AVI]);
       img.onerror=()=>window.pi_err(img);
     }
     setChip($('peImgBadge'),'Valid','good');
@@ -3833,18 +3888,14 @@ async function uploadProfileImageFile(){
     if(prev) prev.classList.remove('hidden');
     if(img){
       const cands=profileImgCandidates(uploaded.canonical);
-      img.src=cands[0]||uploaded.preview||uploaded.canonical;
-      img.dataset.cands=JSON.stringify([...cands.slice(1),FALLBACK_AVI]);
+      img.src=FALLBACK_AVI;
+      img.dataset.cands=JSON.stringify([...cands,FALLBACK_AVI]);
       img.onerror=()=>window.pi_err(img);
     }
     setChip($('peImgBadge'),'Valid','good');
     showStatus(st,'Uploaded and pinned for 1 hour. Preview may take time to appear—please wait before posting. Files over a few MB can take much longer.','warn');
     const previewReady=await waitForIpfsIo(cid);
     if(previewReady){
-      if(img){
-        const cands=profileImgCandidates(uploaded.canonical);
-        img.src=cands[0]||uploaded.preview||uploaded.canonical;
-      }
       showStatus(st,`Preview ready on IPFS · Image set: ${uploaded.canonical.slice(0,80)}`,'good');
     }
   }catch(e){
@@ -4030,7 +4081,7 @@ function renderGifPicker(){
     btn.onclick=()=>useGifAttachment(it.token);
     box.appendChild(btn);
     // Stagger src assignments to avoid flooding IPFS gateways (200ms per item)
-    setTimeout(()=>{if(img)img.src=it.url;},relIdx*200);
+    setTimeout(()=>{if(img&&!extractCidFromUrl(it.url))img.src=it.url;},relIdx*200);
   });
   // Show loading indicator at the end if still fetching
   if(gp.loading&&!gp.done){
@@ -4129,7 +4180,7 @@ function renderComposeAttachments(){
   S.composeAttachments.forEach((tok,i)=>{
     const item=document.createElement('div');item.className='cm-attach-item';
     const info=attachmentPreviewCandidates(tok),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls);
-    if(preview&&info.kind==='image') item.innerHTML=`<img ${attrs} alt=""><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
+    if(preview&&info.kind==='image') item.innerHTML=`<img ${attrs} alt="" ${extractCidFromUrl(preview)?`src="${FALLBACK_AVI}"`:''}><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
     else if(preview&&info.kind==='audio') item.innerHTML=`<audio controls ${attrs}></audio><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
     else if(preview&&info.kind==='video') item.innerHTML=`<video controls playsinline webkit-playsinline preload="auto" ${attrs} style="max-height:100px;width:100%"></video><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
     else if(info.kind==='retweet') item.innerHTML=`<div class="cm-attach-text">🔁 ${esc(norm(tok).slice(0,60))}</div><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
