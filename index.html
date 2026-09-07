@@ -28,8 +28,8 @@
       --overlay:rgba(0,0,0,.65);
     }
     *{box-sizing:border-box;margin:0;padding:0}
-    html{scroll-behavior:smooth}
-    body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;min-height:100vh;overflow-x:hidden}
+    html{scroll-behavior:smooth;overscroll-behavior-y:none}
+    body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;min-height:100vh;overflow-x:hidden;overscroll-behavior-y:none}
     a{color:var(--accent);text-decoration:none}
     a:hover{text-decoration:underline}
     button{font:inherit;cursor:pointer}
@@ -867,6 +867,43 @@ const parseHashtags = msg => { const m=norm(msg).match(/(?:^|[^a-zA-Z0-9_&;])#[^
 const $ = id => document.getElementById(id);
 const clr = el => { el.replaceChildren(); };
 function autoResize(ta) { ta.style.height='auto'; ta.style.height=ta.scrollHeight+'px'; }
+function isLikelyIosDevice(){
+  const ua=String(navigator.userAgent||'');
+  const platform=String(navigator.platform||'');
+  const touchPoints=Number(navigator.maxTouchPoints||0);
+  return /iP(?:hone|ad|od)/.test(ua)||(platform==='MacIntel'&&touchPoints>1);
+}
+function nearestScrollableY(el){
+  let node=el instanceof Element?el:null;
+  while(node&&node!==document.body){
+    const st=getComputedStyle(node);
+    if(/(auto|scroll)/.test(st.overflowY)&&node.scrollHeight>node.clientHeight+1) return node;
+    node=node.parentElement;
+  }
+  return document.scrollingElement||document.documentElement;
+}
+function installIosOverscrollGuard(){
+  if(!isLikelyIosDevice()) return;
+  let lastTouchY=null;
+  document.addEventListener('touchstart',e=>{
+    const t=e.touches?.[0];
+    lastTouchY=t?t.clientY:null;
+  },{passive:true});
+  document.addEventListener('touchmove',e=>{
+    if(!e.cancelable) return;
+    const t=e.touches?.[0];
+    if(!t) return;
+    if(lastTouchY==null){ lastTouchY=t.clientY; return; }
+    const dy=t.clientY-lastTouchY;
+    lastTouchY=t.clientY;
+    if(dy===0) return;
+    const scroller=nearestScrollableY(e.target);
+    if(!scroller) return;
+    const top=scroller.scrollTop<=0;
+    const bottom=scroller.scrollTop+scroller.clientHeight>=scroller.scrollHeight-1;
+    if((top&&dy>0)||(bottom&&dy<0)) e.preventDefault();
+  },{passive:false});
+}
 function clearObserver(name){
   const ctx=S.observers?.[name];
   if(ctx?.cooldownTimer){ clearInterval(ctx.cooldownTimer); ctx.cooldownTimer=null; }
@@ -5173,6 +5210,7 @@ window.autoResize=autoResize;
 (async()=>{
   loadSocialState();
   loadIpfsSettings();
+  installIosOverscrollGuard();
   initMediaDiskCacheHydration();
   // check for stored wallet
   const stored=localStorage.getItem(WALLET_KEY);
