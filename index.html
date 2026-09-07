@@ -3109,24 +3109,26 @@ async function fillThreadData(art,minVisible,{profileCache={}}={}){
           if(actions.retweet) state.userRetweeted=true;
         }
       }
-      if(fresh.length){
-        const pc=await buildSenderProfileCache(fresh,state.profileCache);
-        Object.assign(state.profileCache,pc||{});
-      }
       if(!rows.length) state.done=true;
     }
   }finally{
     state.loading=false;
   }
 }
+async function fillThreadProfiles(art,count){
+  const state=art?._threadState;
+  if(!state) return;
+  const rows=visibleInlineEntries(state).slice(0,Math.max(0,Number(count)||0));
+  if(!rows.length) return;
+  const pc=await buildSenderProfileCache(rows,state.profileCache);
+  Object.assign(state.profileCache,pc||{});
+}
 async function loadTweetEngagement(art,txid,{profileCache={},profileNav='main'}={}){
   const state=await ensureThreadState(art,txid,{profileCache});
   if(!state) return;
   await fillThreadData(art,THREAD_PREVIEW_BATCH,{profileCache});
-  state.rendered=Math.max(state.rendered,Math.min(THREAD_PREVIEW_BATCH,visibleInlineEntries(state).length));
   state.open=false;
   updateTweetCardUi(art);
-  renderInlineThread(art,{profileCache:state.profileCache,profileNav});
 }
 async function loadMoreInlineThread(art,txid,{profileCache={},profileNav='main'}={}){
   const state=await ensureThreadState(art,txid,{profileCache});
@@ -3134,6 +3136,7 @@ async function loadMoreInlineThread(art,txid,{profileCache={},profileNav='main'}
   state.open=true;
   state.rendered+=THREAD_PREVIEW_BATCH;
   await fillThreadData(art,state.rendered,{profileCache});
+  await fillThreadProfiles(art,state.rendered);
   updateTweetCardUi(art);
   renderInlineThread(art,{profileCache:state.profileCache,profileNav});
 }
@@ -3150,6 +3153,7 @@ async function toggleInlineThread(art,txid,{profileCache={},onThread,profileNav=
   if(state.open){
     state.rendered=Math.max(state.rendered,THREAD_PREVIEW_BATCH);
     await fillThreadData(art,state.rendered,{profileCache});
+    await fillThreadProfiles(art,state.rendered);
     if(!visibleInlineEntries(state).length&&typeof onThread==='function'){onThread(txid);return;}
   }
   updateTweetCardUi(art);
