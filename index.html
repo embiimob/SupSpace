@@ -746,6 +746,7 @@ const ADDR_RE = /^[mn][1-9A-HJ-NP-Za-km-z]{25,34}$/;
 const TAG_RE = /(?:^|[^a-zA-Z0-9_&;])#([a-zA-Z0-9_-]{2,32})/g;
 const MENTION_RE = /(?:^|[^a-zA-Z0-9_&;])@([A-Za-z0-9/]{1,64})/g;
 const FALLBACK_AVI = 'data:image/svg+xml;utf8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect width="96" height="96" rx="48" fill="#1d9bf0"/><circle cx="48" cy="36" r="20" fill="rgba(255,255,255,.9)"/><path d="M16 88c7-20 18-28 32-28s25 8 32 28" fill="rgba(255,255,255,.9)"/></svg>');
+const FALLBACK_MEDIA = "data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3Crect width='1' height='1' fill='%23222'/%3E%3C/svg%3E";
 const PAGE_SIZE = 50;
 const HOME_PAGE_SIZE = 30;
 const SEARCH_PAGE_SIZE = 30;
@@ -1296,17 +1297,19 @@ function filterStaleCandidates(cands) {
     return !(cid && isCidStale(cid));
   });
 }
+window.filterStaleCandidates = filterStaleCandidates;
 function mediaElementCandidates(el){
   const out=[],seen=new Set();
   const add=v=>{
     const t=norm(v);
     if(!t||seen.has(t)) return;
+    if(t === FALLBACK_MEDIA || t === FALLBACK_AVI) return;
     seen.add(t);
     out.push(t);
   };
   add(el?.dataset?.cacheSource||'');
-  add(el?.getAttribute?.('src')||'');
-  add(el?.src||'');
+  const attrSrc = el?.getAttribute?.('src')||'';
+  if (attrSrc && !attrSrc.startsWith('data:')) add(attrSrc);
   try{
     const cands=JSON.parse(el?.dataset?.cands||'[]');
     if(Array.isArray(cands)) cands.forEach(add);
@@ -1378,15 +1381,39 @@ async function hydrateMediaElementFromDiskCache(el){
   const token=(mediaHydrateToken.get(el)||0)+1;
   mediaHydrateToken.set(el,token);
   const cands=mediaElementCandidates(el);
-  if(!cands.length) return;
+
+  if(!cands.length) {
+     if (el.dataset.cands) {
+         try {
+             const parsed = JSON.parse(el.dataset.cands);
+             for (const src of parsed) {
+                 const cid = extractCidFromUrl(src);
+                 if (cid && isCidStale(cid)) {
+                     el.dataset.cacheHydrated='1';
+                     if(el.tagName==='IMG') {
+                        const isProfileImg = el.classList.contains('profile-avi-lg') || el.classList.contains('tweet-avi') || el.classList.contains('compose-avi') || el.classList.contains('wallet-mini-avi') || el.id === 'peImgPreviewImg';
+                        const fallbackTarget = isProfileImg ? FALLBACK_AVI : FALLBACK_MEDIA;
+                        if (el.src !== fallbackTarget) { el.removeAttribute('onerror'); el.src = fallbackTarget; }
+                     }
+                     return;
+                 }
+             }
+         } catch(e) {}
+     }
+     return;
+  }
   let hasCid = false;
   let failedCid = null;
+  let staleSkipped = false;
   for(const src of cands){
     const cid = extractCidFromUrl(src);
     if (cid) {
       hasCid = true;
       failedCid = cid;
-      if (isCidStale(cid)) continue;
+      if (isCidStale(cid)) {
+          staleSkipped = true;
+          continue;
+      }
     }
     try{
       const cached=await mediaObjectUrlFromCache(src);
@@ -1397,8 +1424,13 @@ async function hydrateMediaElementFromDiskCache(el){
       return;
     }catch{}
   }
-  if (hasCid && failedCid) {
-    markCidStale(failedCid);
+  if ((hasCid && failedCid) || staleSkipped) {
+    if (failedCid) markCidStale(failedCid);
+    el.dataset.cacheHydrated='1';
+    if(el.tagName==='IMG') {
+        const isProfileImg = el.classList.contains('profile-avi-lg') || el.classList.contains('tweet-avi') || el.classList.contains('compose-avi') || el.classList.contains('wallet-mini-avi') || el.id === 'peImgPreviewImg';
+        el.removeAttribute('onerror'); el.src = isProfileImg ? FALLBACK_AVI : FALLBACK_MEDIA;
+    }
   }
 }
 async function primeVideoElementDiskCache(el){
@@ -1509,9 +1541,31 @@ function initMediaDiskCacheHydration(){
             m.target.dataset.cacheHydrated='1';
             return;
           }
+          if (nextSrc && m.target.dataset.cacheSource === nextSrc) {
+              m.target.dataset.cacheHydrated='1';
+              return;
+          }
+          if (nextSrc === FALLBACK_MEDIA || nextSrc === FALLBACK_AVI) {
+              m.target.dataset.cacheHydrated='1';
+              return;
+          }
+          if (nextSrc && extractCidFromUrl(nextSrc) && isCidStale(extractCidFromUrl(nextSrc))) {
+              m.target.dataset.cacheHydrated='1';
+              const isProfileImg = m.target.classList.contains('profile-avi-lg') || m.target.classList.contains('tweet-avi') || m.target.classList.contains('compose-avi') || m.target.classList.contains('wallet-mini-avi') || m.target.id === 'peImgPreviewImg';
+              const fallbackTarget = isProfileImg ? FALLBACK_AVI : FALLBACK_MEDIA;
+              if (m.target.src !== fallbackTarget) {
+                  m.target.removeAttribute('onerror');
+                  m.target.src = fallbackTarget;
+              }
+              return;
+          }
           m.target.dataset.cacheHydrated='';
         }
-        queueMediaElementHydration(m.target);
+        if (m.attributeName === 'data-cands' && m.target.dataset.cacheHydrated === '') {
+            queueMediaElementHydration(m.target);
+            return;
+        }
+        if (m.attributeName === 'src') queueMediaElementHydration(m.target);
         return;
       }
       if(m.type==='attributes'&&m.target&&/^VIDEO$/.test(m.target.tagName)){
@@ -2350,7 +2404,7 @@ function mediaAttrs(urls=[]){
   const [first,...rest]=urls.filter(Boolean);
   if(!first) return '';
   const cid = extractCidFromUrl(first);
-  if (cid) return `data-cands="${esc(JSON.stringify([first, ...rest]))}" onerror="media_fallback(this)"`;
+  if (cid) return `data-cands="${esc(JSON.stringify([first, ...rest]))}" onerror="media_fallback(this)" src="${FALLBACK_MEDIA}"`;
   if(!rest.length) return `src="${esc(first)}"`;
   return `src="${esc(first)}" data-cands="${esc(JSON.stringify(rest))}" onerror="media_fallback(this)"`;
 }
@@ -2916,7 +2970,7 @@ window.calcPoll=async function(txid,btn){
 function renderAttachEl(token){
   const wrap=document.createElement('div');
   const info=attachmentPreviewCandidates(token),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls);
-  if(preview&&info.kind==='image'){wrap.className='tweet-media';wrap.innerHTML=`<img ${attrs} alt="Attachment" ${extractCidFromUrl(preview)?`src="${FALLBACK_AVI}"`:''}>`;}
+  if(preview&&info.kind==='image'){wrap.className='tweet-media';wrap.innerHTML=`<img ${attrs} alt="Attachment" ${extractCidFromUrl(preview)?`src="${FALLBACK_MEDIA}"`:''}>`;}
   else if(preview&&info.kind==='audio'){wrap.className='tweet-media';wrap.innerHTML=`<audio controls ${attrs}></audio>`;}
   else if(preview&&info.kind==='video'){wrap.className='tweet-media';wrap.innerHTML=`<video controls playsinline webkit-playsinline preload="auto" ${attrs} style="width:100%"></video>`;}
   else if(preview&&info.kind==='embed'){wrap.className='tweet-media tweet-media-embed';wrap.innerHTML=`<iframe src="${esc(preview)}" frameborder="0" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" loading="lazy"></iframe>`;}
@@ -2987,7 +3041,7 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
   const mediaHtml=[];
   [...attachments,...root.files.map(f=>`${root.txId}/${f}`),...links].forEach(tok=>{
     const info=attachmentPreviewCandidates(tok),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls);
-    if(preview&&info.kind==='image') mediaHtml.push(`<div class="tweet-media"><img ${attrs} alt="" ${extractCidFromUrl(preview)?`src="${FALLBACK_AVI}"`:''}></div>`);
+    if(preview&&info.kind==='image') mediaHtml.push(`<div class="tweet-media"><img ${attrs} alt="" ${extractCidFromUrl(preview)?`src="${FALLBACK_MEDIA}"`:''}></div>`);
     else if(preview&&info.kind==='audio') mediaHtml.push(`<div class="tweet-media"><audio controls ${attrs}></audio></div>`);
     else if(preview&&info.kind==='video') mediaHtml.push(`<div class="tweet-media"><video controls playsinline webkit-playsinline preload="auto" ${attrs} style="width:100%"></video></div>`);
     else if(preview&&info.kind==='embed') mediaHtml.push(`<div class="tweet-media tweet-media-embed"><iframe src="${esc(preview)}" frameborder="0" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" loading="lazy"></iframe></div>`);
@@ -4180,7 +4234,7 @@ function renderComposeAttachments(){
   S.composeAttachments.forEach((tok,i)=>{
     const item=document.createElement('div');item.className='cm-attach-item';
     const info=attachmentPreviewCandidates(tok),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls);
-    if(preview&&info.kind==='image') item.innerHTML=`<img ${attrs} alt="" ${extractCidFromUrl(preview)?`src="${FALLBACK_AVI}"`:''}><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
+    if(preview&&info.kind==='image') item.innerHTML=`<img ${attrs} alt="" ${extractCidFromUrl(preview)?`src="${FALLBACK_MEDIA}"`:''}><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
     else if(preview&&info.kind==='audio') item.innerHTML=`<audio controls ${attrs}></audio><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
     else if(preview&&info.kind==='video') item.innerHTML=`<video controls playsinline webkit-playsinline preload="auto" ${attrs} style="max-height:100px;width:100%"></video><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
     else if(info.kind==='retweet') item.innerHTML=`<div class="cm-attach-text">🔁 ${esc(norm(tok).slice(0,60))}</div><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
