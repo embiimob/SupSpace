@@ -1528,7 +1528,7 @@ function scheduleVideoDiskCachePrime(el){
         if(!next) continue;
         next.dataset.cachePrimeQueued='';
         // Ensure that even if a prior video fetch failed/marked stale, we continue to process the rest of the queue
-        try{await primeVideoElementDiskCache(next);}catch(e){console.error('Video prime error', e);}
+        primeVideoElementDiskCache(next).catch(e => console.error('Video prime error', e));
         await new Promise(r=>setTimeout(r,150));
       }
     }finally{
