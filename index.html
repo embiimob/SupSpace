@@ -1344,18 +1344,8 @@ async function mediaCachedObjectUrlOnly(url){
     if(!res) return '';
     if(norm(res.type).toLowerCase()==='opaque') return url;
 
-    // Check if the cached file is massive. iOS Safari OOMs if we try to Blob > 50MB.
-    const cl = res.headers.get('content-length');
-    if (cl && parseInt(cl) > 50 * 1024 * 1024) {
-        return url;
-    }
-
     const blob=await res.blob();
     if(!(blob?.size>0)) return '';
-
-    if (blob.size > 50 * 1024 * 1024) {
-        return url;
-    }
 
     const objUrl=URL.createObjectURL(blob);
     mediaObjectUrlCache.set(url,objUrl);
