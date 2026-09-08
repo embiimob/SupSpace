@@ -1449,12 +1449,17 @@ async function primeVideoElementDiskCache(el){
   if(el.dataset?.cacheHydrated==='1'&&existing&&cands.includes(existing)) return;
   let hasCid = false;
   let failedCid = null;
+  let staleSkipped = false;
+  let cacheHit = false;
   for(const src of cands){
     const cid = extractCidFromUrl(src);
     if (cid) {
       hasCid = true;
       failedCid = cid;
-      if (isCidStale(cid)) continue;
+      if (isCidStale(cid)) {
+          staleSkipped = true;
+          continue;
+      }
     }
     try{
       await primeMediaUrlInDiskCache(src);
@@ -1462,12 +1467,17 @@ async function primeVideoElementDiskCache(el){
       el.dataset.cacheSource=src;
       const cachedUrl = await mediaCachedObjectUrlOnly(src);
       if (cachedUrl && norm(el.src) !== norm(cachedUrl)) el.src = cachedUrl;
-      return;
-    }catch{}
+      cacheHit = true;
+      break;
+    }catch(err){
+        console.error("Video prime failed:", src, err);
+    }
   }
-  if (hasCid && failedCid) {
-     markCidStale(failedCid);
-     el.dataset.cacheHydrated='1';
+  if (!cacheHit) {
+      if ((hasCid && failedCid) || staleSkipped) {
+         if (failedCid) markCidStale(failedCid);
+      }
+      el.dataset.cacheHydrated='1';
   }
 }
 async function hydrateVideoElementFromDiskCache(el){
@@ -1517,11 +1527,16 @@ function scheduleVideoDiskCachePrime(el){
         const next=videoPrimeQueue.shift();
         if(!next) continue;
         next.dataset.cachePrimeQueued='';
-        try{await primeVideoElementDiskCache(next);}catch{}
+        // Ensure that even if a prior video fetch failed/marked stale, we continue to process the rest of the queue
+        try{await primeVideoElementDiskCache(next);}catch(e){console.error('Video prime error', e);}
         await new Promise(r=>setTimeout(r,150));
       }
     }finally{
       videoPrimeRunning=false;
+      // Just in case anything was pushed to the queue precisely as the while loop ended
+      if (videoPrimeQueue.length > 0) {
+          scheduleVideoDiskCachePrime(videoPrimeQueue[0]);
+      }
     }
   },0);
 }
