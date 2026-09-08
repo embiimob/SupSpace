@@ -2410,9 +2410,20 @@ function mediaAttrs(urls=[]){
 }
 window.media_fallback=function(el){
   try{
+    if(typeof caches!=='undefined' && el.dataset.cacheSource){
+        caches.open(MEDIA_CACHE_NAME).then(c=>c.delete(el.dataset.cacheSource)).catch(()=>{});
+        el.dataset.cacheSource='';
+    }
     const cands=JSON.parse(el.dataset.cands||'[]');
-    if(cands.length){el.dataset.cands=JSON.stringify(cands.slice(1));el.src=cands[0];}
+    if(cands.length){
+        el.dataset.cands=JSON.stringify(cands.slice(1));
+        const nextSrc = cands[0];
+        const isProfileImg = el.classList.contains('profile-avi-lg') || el.classList.contains('tweet-avi') || el.classList.contains('compose-avi') || el.classList.contains('wallet-mini-avi') || el.id === 'peImgPreviewImg';
+        el.src = (nextSrc && extractCidFromUrl(nextSrc)) ? (isProfileImg ? FALLBACK_AVI : FALLBACK_MEDIA) : nextSrc;
+    }
     else{
+      const cid = el.src ? extractCidFromUrl(el.src) : null;
+      if (cid) markCidStale(cid);
       if(el.tagName==='IMG') el.closest('.tweet-media')?.remove();
       else el.removeAttribute('onerror');
     }
@@ -2449,11 +2460,18 @@ function profileImgAttrs(ref){
 // Cascade onerror handler - advances through data-cands list
 window.pi_err=function(el){
   try{
+    if(typeof caches!=='undefined' && el.dataset.cacheSource){
+        caches.open(MEDIA_CACHE_NAME).then(c=>c.delete(el.dataset.cacheSource)).catch(()=>{});
+        el.dataset.cacheSource='';
+    }
     const cands=JSON.parse(el.dataset.cands||'[]');
     if(cands.length){
       el.dataset.cands=JSON.stringify(cands.slice(1));
-      el.src=cands[0];
+      const nextSrc = cands[0];
+      el.src = (nextSrc && extractCidFromUrl(nextSrc)) ? FALLBACK_AVI : nextSrc;
     }else{
+      const cid = el.src ? extractCidFromUrl(el.src) : null;
+      if (cid) markCidStale(cid);
       el.removeAttribute('onerror');el.src=FALLBACK_AVI;
     }
   }catch{el.removeAttribute('onerror');el.src=FALLBACK_AVI;}
@@ -4209,11 +4227,18 @@ async function toggleGifSelector(){
 }
 window.gif_img_err=function(el){
   try{
+    if(typeof caches!=='undefined' && el.dataset.cacheSource){
+        caches.open(MEDIA_CACHE_NAME).then(c=>c.delete(el.dataset.cacheSource)).catch(()=>{});
+        el.dataset.cacheSource='';
+    }
     const cands=JSON.parse(el.dataset.cands||'[]');
     if(cands.length){
       el.dataset.cands=JSON.stringify(cands.slice(1));
-      el.src=cands[0];
+      const nextSrc = cands[0];
+      el.src = (nextSrc && extractCidFromUrl(nextSrc)) ? FALLBACK_MEDIA : nextSrc;
     }else{
+      const cid = el.src ? extractCidFromUrl(el.src) : null;
+      if (cid) markCidStale(cid);
       // All gateways exhausted — hide img but keep the tile slot visible
       el.removeAttribute('onerror');
       el.style.display='none';
