@@ -1287,6 +1287,35 @@ const mediaHydrateQueued=new WeakSet();
 const mediaHydrateToken=new WeakMap();
 const videoPrimeQueue=[];
 let videoPrimeRunning=false;
+
+const videoVisibilityObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+        const el = entry.target;
+        if (!el || el.tagName !== 'VIDEO') return;
+        if (entry.isIntersecting) {
+            if (el.dataset.cacheHydrated === 'unloaded') {
+                el.dataset.cacheHydrated = '';
+                el.dataset.cachePrimeBound = '';
+                bindVideoDiskCachePrime(el);
+            }
+        } else {
+            if (el.dataset.cacheHydrated === '1' && el.src && el.src !== FALLBACK_MEDIA) {
+                const src = el.src;
+                el.pause();
+                el.removeAttribute('src');
+                el.load();
+                el.dataset.cacheHydrated = 'unloaded';
+
+                if (src.startsWith('blob:')) {
+                    URL.revokeObjectURL(src);
+                    for (const [k, v] of mediaObjectUrlCache.entries()) {
+                        if (v === src) mediaObjectUrlCache.delete(k);
+                    }
+                }
+            }
+        }
+    });
+}, { rootMargin: "50% 0px" });
 function shouldDiskCacheMediaUrl(raw=''){
   try{
     const u=new URL(raw);
@@ -1564,6 +1593,7 @@ function scheduleVideoDiskCachePrime(el){
 function bindVideoDiskCachePrime(el){
   if(!el||el.tagName!=='VIDEO'||el.dataset?.cachePrimeBound==='1') return;
   el.dataset.cachePrimeBound='1';
+  videoVisibilityObserver.observe(el);
   hydrateVideoElementFromDiskCache(el).then(hit=>{
     if(!hit) scheduleVideoDiskCachePrime(el);
   }).catch(()=>{scheduleVideoDiskCachePrime(el);});
