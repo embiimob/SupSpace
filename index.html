@@ -1293,12 +1293,16 @@ const videoVisibilityObserver = new IntersectionObserver((entries) => {
         const el = entry.target;
         if (!el || el.tagName !== 'VIDEO') return;
         if (entry.isIntersecting) {
-            if (el.dataset.cacheHydrated === 'unloaded') {
+            if (el.dataset.cacheHydrated === 'unloaded' || el.dataset.cacheHydrated === 'init') {
                 el.dataset.cacheHydrated = '';
-                el.dataset.cachePrimeBound = '';
-                bindVideoDiskCachePrime(el);
+                hydrateVideoElementFromDiskCache(el).then(hit=>{
+                  if(!hit) scheduleVideoDiskCachePrime(el);
+                }).catch(()=>{scheduleVideoDiskCachePrime(el);});
             }
         } else {
+            if (el.dataset.cacheHydrated === 'init') {
+                el.dataset.cacheHydrated = 'unloaded';
+            }
             if (el.dataset.cacheHydrated === '1' && el.src && el.src !== FALLBACK_MEDIA) {
                 const src = el.src;
                 el.pause();
@@ -1495,6 +1499,7 @@ async function hydrateMediaElementFromDiskCache(el){
 }
 async function primeVideoElementDiskCache(el){
   if(!el||typeof el!=='object'||el.tagName!=='VIDEO') return;
+  if(el.dataset?.cacheHydrated==='unloaded') return; // Skip prime if currently off-screen
   const cands=mediaElementCandidates(el);
   if(!cands.length) return;
   const existing=norm(el.dataset?.cacheSource||'');
@@ -1503,6 +1508,20 @@ async function primeVideoElementDiskCache(el){
   let failedCid = null;
   let staleSkipped = false;
   let cacheHit = false;
+  // 1. Check all gateways for an existing cache blob FIRST
+  for(const src of cands){
+    try{
+      const cachedUrl=await mediaCachedObjectUrlOnly(src);
+      if(cachedUrl){
+        el.dataset.cacheHydrated='1';
+        el.dataset.cacheSource=src;
+        if(norm(el.src)!==norm(cachedUrl)) el.src=cachedUrl;
+        return;
+      }
+    }catch{}
+  }
+
+  // 2. No cache found across any candidate. Proceed to fetch/prime
   for(const src of cands){
     const cid = extractCidFromUrl(src);
     if (cid) {
@@ -1536,12 +1555,25 @@ async function primeVideoElementDiskCache(el){
 async function hydrateVideoElementFromDiskCache(el){
   if(!el||typeof el!=='object'||el.tagName!=='VIDEO') return false;
   if(el.dataset?.cacheHydrated==='1'&&el.dataset?.cacheSource) return true;
+  if(el.dataset?.cacheHydrated==='unloaded') return false; // Prevent hydration if it scrolled out of view just now
   if(Number(el.currentTime||0)>0||Number(el.readyState||0)>0) return false;
   const cands=mediaElementCandidates(el);
   if(!cands.length) return false;
   let hasCid = false;
   let failedCid = null;
   let staleSkipped = false;
+  for(const src of cands){
+    try{
+      const cached=await mediaCachedObjectUrlOnly(src);
+      if(cached){
+          el.dataset.cacheHydrated='1';
+          el.dataset.cacheSource=src;
+          if(norm(el.src)!==norm(cached)) el.src=cached;
+          return true;
+      }
+    }catch{}
+  }
+
   for(const src of cands){
     const cid = extractCidFromUrl(src);
     if (cid) {
@@ -1552,14 +1584,6 @@ async function hydrateVideoElementFromDiskCache(el){
           continue;
       }
     }
-    try{
-      const cached=await mediaCachedObjectUrlOnly(src);
-      if(!cached) continue;
-      el.dataset.cacheHydrated='1';
-      el.dataset.cacheSource=src;
-      if(norm(el.src)!==norm(cached)) el.src=cached;
-      return true;
-    }catch{}
   }
   if (staleSkipped) el.dataset.cacheHydrated='1';
   return false;
@@ -1593,10 +1617,9 @@ function scheduleVideoDiskCachePrime(el){
 function bindVideoDiskCachePrime(el){
   if(!el||el.tagName!=='VIDEO'||el.dataset?.cachePrimeBound==='1') return;
   el.dataset.cachePrimeBound='1';
+  el.dataset.cacheHydrated = 'init';
   videoVisibilityObserver.observe(el);
-  hydrateVideoElementFromDiskCache(el).then(hit=>{
-    if(!hit) scheduleVideoDiskCachePrime(el);
-  }).catch(()=>{scheduleVideoDiskCachePrime(el);});
+
   el.addEventListener('error', () => {
     const isHydrated = el.dataset.cacheHydrated === '1';
     if (isHydrated && el.src && el.src !== FALLBACK_MEDIA && el.src !== FALLBACK_AVI && !el.src.startsWith('blob:')) {
