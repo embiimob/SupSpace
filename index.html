@@ -1047,7 +1047,7 @@ async function webShareUrl(url,title='SupSpace'){
   if(!url) return false;
   try{
     if(navigator.share){
-      await navigator.share({title,url,text:url});
+      await navigator.share({title,url});
       return true;
     }
   }catch(e){
@@ -1185,7 +1185,7 @@ async function cacheUsageSummary(){
     const type=norm(res.type).toLowerCase();
     if(type==='opaque'){unknown++;continue;}
     try{
-      const blob=await res.clone().blob();
+      const blob=await res.blob();
       bytes+=blob.size||0;
       known++;
     }catch{
@@ -1325,7 +1325,7 @@ async function mediaObjectUrlFromCache(url){
     const res=await cache.match(url);
     if(!res) return url;
     if(norm(res.type).toLowerCase()==='opaque') return url;
-    const blob=await res.clone().blob();
+    const blob=await res.blob();
     if(!(blob?.size>0)) return url;
     const objUrl=URL.createObjectURL(blob);
     mediaObjectUrlCache.set(url,objUrl);
@@ -1343,8 +1343,20 @@ async function mediaCachedObjectUrlOnly(url){
     const res=await cache.match(url);
     if(!res) return '';
     if(norm(res.type).toLowerCase()==='opaque') return url;
-    const blob=await res.clone().blob();
+
+    // Check if the cached file is massive. iOS Safari OOMs if we try to Blob > 50MB.
+    const cl = res.headers.get('content-length');
+    if (cl && parseInt(cl) > 50 * 1024 * 1024) {
+        return url;
+    }
+
+    const blob=await res.blob();
     if(!(blob?.size>0)) return '';
+
+    if (blob.size > 50 * 1024 * 1024) {
+        return url;
+    }
+
     const objUrl=URL.createObjectURL(blob);
     mediaObjectUrlCache.set(url,objUrl);
     return objUrl;
@@ -1375,7 +1387,7 @@ async function primeMediaUrlInDiskCache(url){
       if(!(res.ok||res.type==='opaque')) throw new Error('media fetch failed');
       // If it's a known IPFS gateway request that failed and gave us an opaque response (like a 502 Bad Gateway under no-cors), throw
       if (res.type === 'opaque' && /\/ipfs\//i.test(url)) throw new Error('media fetch opaque ipfs failed');
-      try { await cache.put(url,res.clone()); } catch (e) { console.error('Cache put error', e); }
+      try { await cache.put(url,res); } catch (e) { console.error('Cache put error', e); }
     }
     return true;
   })().finally(()=>mediaDiskCacheReqs.delete(url));
