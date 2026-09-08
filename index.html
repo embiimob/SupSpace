@@ -1460,10 +1460,15 @@ async function primeVideoElementDiskCache(el){
       await primeMediaUrlInDiskCache(src);
       el.dataset.cacheHydrated='1';
       el.dataset.cacheSource=src;
+      const cachedUrl = await mediaCachedObjectUrlOnly(src);
+      if (cachedUrl && norm(el.src) !== norm(cachedUrl)) el.src = cachedUrl;
       return;
     }catch{}
   }
-  if (hasCid && failedCid) markCidStale(failedCid);
+  if (hasCid && failedCid) {
+     markCidStale(failedCid);
+     el.dataset.cacheHydrated='1';
+  }
 }
 async function hydrateVideoElementFromDiskCache(el){
   if(!el||typeof el!=='object'||el.tagName!=='VIDEO') return false;
@@ -1473,12 +1478,16 @@ async function hydrateVideoElementFromDiskCache(el){
   if(!cands.length) return false;
   let hasCid = false;
   let failedCid = null;
+  let staleSkipped = false;
   for(const src of cands){
     const cid = extractCidFromUrl(src);
     if (cid) {
       hasCid = true;
       failedCid = cid;
-      if (isCidStale(cid)) continue;
+      if (isCidStale(cid)) {
+          staleSkipped = true;
+          continue;
+      }
     }
     try{
       const cached=await mediaCachedObjectUrlOnly(src);
@@ -1489,7 +1498,10 @@ async function hydrateVideoElementFromDiskCache(el){
       return true;
     }catch{}
   }
-  if (hasCid && failedCid) markCidStale(failedCid);
+  if ((hasCid && failedCid) || staleSkipped) {
+    if (failedCid) markCidStale(failedCid);
+    el.dataset.cacheHydrated='1';
+  }
   return false;
 }
 function scheduleVideoDiskCachePrime(el){
