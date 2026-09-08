@@ -1297,7 +1297,6 @@ function filterStaleCandidates(cands) {
     return !(cid && isCidStale(cid));
   });
 }
-window.filterStaleCandidates = filterStaleCandidates;
 function mediaElementCandidates(el){
   const out=[],seen=new Set();
   const add=v=>{
@@ -1368,6 +1367,8 @@ async function primeMediaUrlInDiskCache(url){
         res=await fetch(url,{cache:'no-store',credentials:'omit',mode:'no-cors'});
       }
       if(!(res.ok||res.type==='opaque')) throw new Error('media fetch failed');
+      // If it's a known IPFS gateway request that failed and gave us an opaque response (like a 502 Bad Gateway under no-cors), throw
+      if (res.type === 'opaque' && /\/ipfs\//i.test(url)) throw new Error('media fetch opaque ipfs failed');
       await cache.put(url,res.clone());
     }
     return true;
@@ -1405,6 +1406,7 @@ async function hydrateMediaElementFromDiskCache(el){
   let hasCid = false;
   let failedCid = null;
   let staleSkipped = false;
+  let cacheHit = false;
   for(const src of cands){
     const cid = extractCidFromUrl(src);
     if (cid) {
@@ -1421,16 +1423,22 @@ async function hydrateMediaElementFromDiskCache(el){
       el.dataset.cacheHydrated='1';
       el.dataset.cacheSource=src;
       if(norm(el.src)!==norm(cached)) el.src=cached;
-      return;
+      cacheHit = true;
+      break;
     }catch{}
   }
-  if ((hasCid && failedCid) || staleSkipped) {
-    if (failedCid) markCidStale(failedCid);
-    el.dataset.cacheHydrated='1';
-    if(el.tagName==='IMG') {
-        const isProfileImg = el.classList.contains('profile-avi-lg') || el.classList.contains('tweet-avi') || el.classList.contains('compose-avi') || el.classList.contains('wallet-mini-avi') || el.id === 'peImgPreviewImg';
-        el.removeAttribute('onerror'); el.src = isProfileImg ? FALLBACK_AVI : FALLBACK_MEDIA;
-    }
+  if (!cacheHit) {
+      if ((hasCid && failedCid) || staleSkipped) {
+        if (failedCid) markCidStale(failedCid);
+      }
+      el.dataset.cacheHydrated='1';
+      if(el.tagName==='IMG') {
+          const isProfileImg = el.classList.contains('profile-avi-lg') || el.classList.contains('tweet-avi') || el.classList.contains('compose-avi') || el.classList.contains('wallet-mini-avi') || el.id === 'peImgPreviewImg';
+          el.removeAttribute('onerror');
+          if (el.dataset.cacheSource) caches.open(MEDIA_CACHE_NAME).then(c=>c.delete(el.dataset.cacheSource)).catch(()=>{});
+          el.dataset.cacheSource='';
+          el.src = isProfileImg ? FALLBACK_AVI : FALLBACK_MEDIA;
+      }
   }
 }
 async function primeVideoElementDiskCache(el){
@@ -2215,7 +2223,10 @@ function extractIpfsParts(v){
 }
 function extractCidFromUrl(url) {
   const p = extractIpfsParts(url);
-  return p ? p.cid : null;
+  if (p && p.cid) return p.cid;
+  const m = norm(url).match(/(?:[a-zA-Z0-9]+:)?([0-9a-fA-F]{64})(?:[\\/].*)?$/i);
+  if (m && m[1]) return m[1].toLowerCase();
+  return null;
 }
 function normOnChain(v){const t=norm(v);const m=t.match(/^(?:(BTC|LTC|DOG|MZC):)?([0-9a-fA-F]{64})(?:[\\/]([^<>]+))?$/);if(!m)return null;const chain=norm(m[1]||'');const txid=m[2].toLowerCase();const path=norm(m[3]||'').replace(/^\/+/,'').replace(UNSAFE_RE,'');return`${chain?chain.toUpperCase()+':':''}${txid}${path?'/'+path:''}`;}
 function onchainFileUrl(txid,path=''){
