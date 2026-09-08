@@ -1276,6 +1276,12 @@ window.clearCacheAndSettings=async function(){
 };
 const mediaObjectUrlCache=new Map();
 const mediaDiskCacheReqs=new Map();
+const activeMediaAborts=new Set();
+window.addEventListener('beforeunload', () => {
+  activeMediaAborts.forEach(abort => {
+    try { abort.abort(); } catch(e) {}
+  });
+});
 const mediaObjectUrlReqs=new Map();
 const mediaHydrateQueued=new WeakSet();
 const mediaHydrateToken=new WeakMap();
@@ -1364,6 +1370,7 @@ async function primeMediaUrlInDiskCache(url){
     let res=await cache.match(url);
     if(!res){
       const abort = new AbortController();
+      activeMediaAborts.add(abort);
       const tid = setTimeout(() => abort.abort(), 10000);
       try{
         try {
@@ -1373,6 +1380,7 @@ async function primeMediaUrlInDiskCache(url){
         }
       } finally {
         clearTimeout(tid);
+        activeMediaAborts.delete(abort);
       }
       if(!(res.ok||res.type==='opaque')) throw new Error('media fetch failed');
       // If it's a known IPFS gateway request that failed and gave us an opaque response (like a 502 Bad Gateway under no-cors), throw
@@ -1555,7 +1563,21 @@ function bindVideoDiskCachePrime(el){
   hydrateVideoElementFromDiskCache(el).then(hit=>{
     if(!hit) scheduleVideoDiskCachePrime(el);
   }).catch(()=>{scheduleVideoDiskCachePrime(el);});
-  el.addEventListener('error',()=>{scheduleVideoDiskCachePrime(el);},{passive:true});
+  el.addEventListener('error', () => {
+    const isHydrated = el.dataset.cacheHydrated === '1';
+    if (isHydrated && el.src && el.src !== FALLBACK_MEDIA && el.src !== FALLBACK_AVI && !el.src.startsWith('blob:')) {
+        const cands = JSON.parse(el.dataset.cands || '[]');
+        if (cands.length) {
+            const failedUrl = cands[0];
+            const cid = extractCidFromUrl(failedUrl);
+            if (cid) markCidStale(cid);
+            el.dataset.cands = JSON.stringify(cands.slice(1));
+        }
+        el.dataset.cacheHydrated = '';
+        el.dataset.cacheSource = '';
+    }
+    scheduleVideoDiskCachePrime(el);
+  }, {passive:true});
 }
 function queueMediaElementHydration(el){
   if(!el||mediaHydrateQueued.has(el)) return;
