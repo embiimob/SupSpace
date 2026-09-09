@@ -1317,27 +1317,7 @@ const videoVisibilityObserver = new IntersectionObserver((entries) => {
                 }).catch(()=>{scheduleVideoDiskCachePrime(el);});
             }
         } else {
-            if (el.dataset.cacheHydrated === 'init' || el.dataset.cacheHydrated === '') {
-                el.dataset.cacheHydrated = 'unloaded';
-            }
-            if (el.src && el.src !== FALLBACK_MEDIA) {
-                const src = el.src;
-                el.pause();
-                el.src = '';
-                el.removeAttribute('src');
-                el.load();
-                el.dataset.cacheHydrated = 'unloaded';
-
-                if (src.startsWith('blob:')) {
-                    const stillInUse = Array.from(document.querySelectorAll('video')).some(v => v !== el && v.src === src);
-                    if (!stillInUse) {
-                        URL.revokeObjectURL(src);
-                        for (const [k, v] of mediaObjectUrlCache.entries()) {
-                            if (v === src) mediaObjectUrlCache.delete(k);
-                        }
-                    }
-                }
-            }
+            try{el.pause();}catch{}
         }
     });
 }, { rootMargin: "0px", threshold:[0,VIDEO_MIN_VISIBLE_RATIO,0.5,1] });
