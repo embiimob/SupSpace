@@ -1353,6 +1353,9 @@ function mediaElementCandidates(el){
     const cands=JSON.parse(el?.dataset?.cands||'[]');
     if(Array.isArray(cands)) cands.forEach(add);
   }catch{}
+  if (el && el.tagName === 'VIDEO') {
+      return out.filter(shouldDiskCacheMediaUrl);
+  }
   return filterStaleCandidates(out.filter(shouldDiskCacheMediaUrl));
 }
 async function mediaObjectUrlFromCache(url){
@@ -1490,7 +1493,7 @@ async function hydrateMediaElementFromDiskCache(el){
       cacheHit = true;
       break;
     }catch(err){
-      if (err instanceof DOMException || err instanceof TypeError) {
+      if (err instanceof DOMException) {
         localErrorOccurred = true;
         if(mediaHydrateToken.get(el)!==token) return;
         el.dataset.cacheHydrated='1';
@@ -1522,11 +1525,7 @@ async function primeVideoElementDiskCache(el){
   if(!cands.length) return;
   const existing=norm(el.dataset?.cacheSource||'');
   if(el.dataset?.cacheHydrated==='1'&&existing&&cands.includes(existing)) return;
-  let hasCid = false;
-  let failedCid = null;
-  let staleSkipped = false;
   let cacheHit = false;
-  let localErrorOccurred = false;
   // 1. Check all gateways for an existing cache blob FIRST
   for(const src of cands){
     try{
@@ -1542,15 +1541,6 @@ async function primeVideoElementDiskCache(el){
 
   // 2. No cache found across any candidate. Proceed to fetch/prime
   for(const src of cands){
-    const cid = extractCidFromUrl(src);
-    if (cid) {
-      hasCid = true;
-      failedCid = cid;
-      if (isCidStale(cid)) {
-          staleSkipped = true;
-          continue;
-      }
-    }
     try{
       await primeMediaUrlInDiskCache(src);
       el.dataset.cacheHydrated='1';
@@ -1562,8 +1552,7 @@ async function primeVideoElementDiskCache(el){
       break;
     }catch(err){
         console.error("Video prime failed:", src, err);
-        if (err instanceof DOMException || err instanceof TypeError || (err.message && err.message.includes('QuotaExceeded'))) {
-            localErrorOccurred = true;
+        if (err instanceof DOMException || (err.message && err.message.includes('QuotaExceeded'))) {
             el.dataset.cacheHydrated='1';
             el.dataset.cacheSource=src;
             if(norm(el.src)!==norm(src)) el.src=src;
@@ -1572,11 +1561,10 @@ async function primeVideoElementDiskCache(el){
         }
     }
   }
-  if (!cacheHit) {
-      if (!localErrorOccurred && ((hasCid && failedCid) || staleSkipped)) {
-         if (failedCid) markCidStale(failedCid);
-      }
+  if (!cacheHit && cands.length > 0) {
       el.dataset.cacheHydrated='1';
+      el.dataset.cacheSource=cands[0];
+      if(norm(el.src)!==norm(cands[0])) el.src=cands[0];
   }
 }
 async function hydrateVideoElementFromDiskCache(el){
@@ -1586,9 +1574,6 @@ async function hydrateVideoElementFromDiskCache(el){
   if(Number(el.currentTime||0)>0||Number(el.readyState||0)>0) return false;
   const cands=mediaElementCandidates(el);
   if(!cands.length) return false;
-  let hasCid = false;
-  let failedCid = null;
-  let staleSkipped = false;
   for(const src of cands){
     try{
       const cached=await mediaCachedObjectUrlOnly(src);
@@ -1600,19 +1585,6 @@ async function hydrateVideoElementFromDiskCache(el){
       }
     }catch{}
   }
-
-  for(const src of cands){
-    const cid = extractCidFromUrl(src);
-    if (cid) {
-      hasCid = true;
-      failedCid = cid;
-      if (isCidStale(cid)) {
-          staleSkipped = true;
-          continue;
-      }
-    }
-  }
-  if (staleSkipped) el.dataset.cacheHydrated='1';
   return false;
 }
 function scheduleVideoDiskCachePrime(el){
