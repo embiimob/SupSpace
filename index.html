@@ -1301,6 +1301,9 @@ const videoVisibilityObserver = new IntersectionObserver((entries) => {
         if (!el || el.tagName !== 'VIDEO') return;
         if (shouldDisableVideoDiskCache()) {
             if (entry.isIntersecting) primeVideoPlayback(el);
+            else {
+              try{el.pause();}catch{}
+            }
             return;
         }
         if (entry.isIntersecting) {
@@ -1634,14 +1637,14 @@ function scheduleVideoDiskCachePrime(el){
 function bindVideoDiskCachePrime(el){
   if(!el||el.tagName!=='VIDEO'||el.dataset?.cachePrimeBound==='1') return;
   el.dataset.cachePrimeBound='1';
-  primeVideoPlayback(el);
   if(shouldDisableVideoDiskCache()){
     el.dataset.cacheHydrated='1';
     el.dataset.cacheSource='';
   }else{
-  el.dataset.cacheHydrated = 'init';
-  videoVisibilityObserver.observe(el);
+    el.dataset.cacheHydrated = 'init';
   }
+  videoVisibilityObserver.observe(el);
+  primeVideoPlayback(el);
 
   el.addEventListener('error', () => {
     if(shouldDisableVideoDiskCache()){
