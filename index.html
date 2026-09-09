@@ -1294,19 +1294,22 @@ const mediaHydrateQueued=new WeakSet();
 const mediaHydrateToken=new WeakMap();
 const videoPrimeQueue=[];
 let videoPrimeRunning=false;
+const VIDEO_MIN_VISIBLE_RATIO=0.15;
 
 const videoVisibilityObserver = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
         const el = entry.target;
         if (!el || el.tagName !== 'VIDEO') return;
+        const visibleRatio=Number(entry.intersectionRatio||0);
+        const isVisible=entry.isIntersecting&&visibleRatio>=VIDEO_MIN_VISIBLE_RATIO;
         if (shouldDisableVideoDiskCache()) {
-            if (entry.isIntersecting) primeVideoPlayback(el);
+            if (isVisible) primeVideoPlayback(el);
             else {
               try{el.pause();}catch{}
             }
             return;
         }
-        if (entry.isIntersecting) {
+        if (isVisible) {
             if (el.dataset.cacheHydrated === 'unloaded' || el.dataset.cacheHydrated === 'init') {
                 el.dataset.cacheHydrated = '';
                 hydrateVideoElementFromDiskCache(el).then(hit=>{
@@ -1337,7 +1340,7 @@ const videoVisibilityObserver = new IntersectionObserver((entries) => {
             }
         }
     });
-}, { rootMargin: "0px" });
+}, { rootMargin: "0px", threshold:[0,VIDEO_MIN_VISIBLE_RATIO,0.5,1] });
 function shouldDiskCacheMediaUrl(raw=''){
   try{
     const u=new URL(raw);
