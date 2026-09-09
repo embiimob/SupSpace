@@ -3867,12 +3867,30 @@ function walletWifFallback(wif='',preferEl=null){
 
 function updateWalletMini(){
   const mini=$('walletMini');
-  if(!S.addr){if(mini)mini.classList.add('hidden');return;}
+  const ica=$('inlineComposeAvi'),cma=$('cmAvi'),avi=$('walletMiniAvi');
+  if(!S.addr){
+    if(mini)mini.classList.add('hidden');
+    [avi,ica,cma].forEach(el=>{
+      if(!el)return;
+      el.dataset.cacheHydrated='';
+      el.dataset.cacheSource='';
+      el.src=FALLBACK_AVI;
+    });
+    return;
+  }
   if(mini){
     mini.classList.remove('hidden');
-    const avi=$('walletMiniAvi'),nm=$('walletMiniName'),ad=$('walletMiniAddr');
-    if(S.myProfile&&avi){const cands=profileImgCandidates(S.myProfile.image);if(cands.length){avi.src=cands[0];avi.dataset.cands=JSON.stringify([...cands.slice(1),FALLBACK_AVI]);avi.onerror=()=>window.pi_err(avi);}else avi.src=FALLBACK_AVI;}
-    else if(avi) avi.src=FALLBACK_AVI;
+    const nm=$('walletMiniName'),ad=$('walletMiniAddr');
+    if(avi) {
+      avi.dataset.cacheHydrated='';
+      avi.dataset.cacheSource='';
+      if(S.myProfile){
+        const cands=profileImgCandidates(S.myProfile.image);
+        if(cands.length){avi.src=cands[0];avi.dataset.cands=JSON.stringify([...cands.slice(1),FALLBACK_AVI]);avi.onerror=()=>window.pi_err(avi);}else avi.src=FALLBACK_AVI;
+      } else {
+        avi.src=FALLBACK_AVI;
+      }
+    }
     let pendingBadge = '';
     if (S.myProfile?.isPending) {
       let pStatus = 'Confirming...';
@@ -3888,11 +3906,17 @@ function updateWalletMini(){
     if(ad) ad.textContent=shortAddr(S.addr);
   }
   // also update inline compose avi with cascade
-  const ica=$('inlineComposeAvi'),cma=$('cmAvi');
   const cands=S.myProfile?profileImgCandidates(S.myProfile.image):[];
   const src=cands.length?cands[0]:FALLBACK_AVI;
   const fb=JSON.stringify([...cands.slice(1),FALLBACK_AVI]);
-  [ica,cma].forEach(el=>{if(!el)return;el.src=src;el.dataset.cands=fb;el.onerror=()=>window.pi_err(el);});
+  [ica,cma].forEach(el=>{
+    if(!el)return;
+    el.dataset.cacheHydrated='';
+    el.dataset.cacheSource='';
+    el.src=src;
+    el.dataset.cands=fb;
+    el.onerror=()=>window.pi_err(el);
+  });
   // show inline compose
   const ic=$('inlineCompose');
   if(ic) ic.classList.toggle('hidden',!S.addr);
@@ -4041,6 +4065,8 @@ function populateProfileEditor(p){
   const cands=profileImgCandidates(p?.image||'');
   if(prevWrap&&prevImg&&cands.length){
     prevWrap.classList.remove('hidden');
+    prevImg.dataset.cacheHydrated='';
+    prevImg.dataset.cacheSource='';
     prevImg.src=cands[0];
     prevImg.dataset.cands=JSON.stringify([...cands.slice(1),FALLBACK_AVI]);
     prevImg.onerror=()=>window.pi_err(prevImg);
@@ -4090,9 +4116,16 @@ async function validateProfileImage(){
     if(prev)prev.classList.remove('hidden');
     if(img){
       const cands=profileImgCandidates(norm_.canonical);
-      img.src=FALLBACK_AVI;
-      img.dataset.cands=JSON.stringify([...cands,FALLBACK_AVI]);
-      img.onerror=()=>window.pi_err(img);
+      img.dataset.cacheHydrated='';
+      img.dataset.cacheSource='';
+      if(cands.length){
+        img.src=cands[0];
+        img.dataset.cands=JSON.stringify([...cands.slice(1),FALLBACK_AVI]);
+        img.onerror=()=>window.pi_err(img);
+      }else{
+        img.src=FALLBACK_AVI;
+        img.dataset.cands='[]';
+      }
     }
     setChip($('peImgBadge'),'Valid','good');
     showStatus(st,'Image validated','good');
@@ -4135,9 +4168,16 @@ async function uploadProfileImageFile(){
     if(prev) prev.classList.remove('hidden');
     if(img){
       const cands=profileImgCandidates(uploaded.canonical);
-      img.src=FALLBACK_AVI;
-      img.dataset.cands=JSON.stringify([...cands,FALLBACK_AVI]);
-      img.onerror=()=>window.pi_err(img);
+      img.dataset.cacheHydrated='';
+      img.dataset.cacheSource='';
+      if(cands.length){
+        img.src=cands[0];
+        img.dataset.cands=JSON.stringify([...cands.slice(1),FALLBACK_AVI]);
+        img.onerror=()=>window.pi_err(img);
+      }else{
+        img.src=FALLBACK_AVI;
+        img.dataset.cands='[]';
+      }
     }
     setChip($('peImgBadge'),'Valid','good');
     showStatus(st,'Uploaded and pinned for 1 hour. Preview may take time to appear—please wait before posting. Files over a few MB can take much longer.','warn');
@@ -5483,8 +5523,14 @@ window.onProfileImageInput=function(){
   const raw=norm($('peImg')?.value||'');
   if(!raw){
     S.normalizedImg='';
-    const prev=$('peImgPreview');
+    const prev=$('peImgPreview'),img=$('peImgPreviewImg');
     if(prev) prev.classList.add('hidden');
+    if(img) {
+      img.dataset.cacheHydrated='';
+      img.dataset.cacheSource='';
+      img.src=FALLBACK_AVI;
+      img.dataset.cands='[]';
+    }
     setChip($('peImgBadge'),'Unchecked');
     return;
   }
