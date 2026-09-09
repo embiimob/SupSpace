@@ -882,6 +882,13 @@ function isLikelyIosDevice(){
   const touchPoints=Number(navigator.maxTouchPoints||0);
   return /iP(?:hone|ad|od)/.test(ua)||(platform==='MacIntel'&&touchPoints>1);
 }
+function isLikelyMobileDevice(){
+  const ua=String(navigator.userAgent||'');
+  return /Android|webOS|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(ua)||isLikelyIosDevice();
+}
+function shouldDisableVideoDiskCache(){
+  return isLikelyMobileDevice();
+}
 function nearestScrollableY(el){
   let node=el instanceof Element?el:null;
   while(node&&node!==document.body){
@@ -1287,12 +1294,22 @@ const mediaHydrateQueued=new WeakSet();
 const mediaHydrateToken=new WeakMap();
 const videoPrimeQueue=[];
 let videoPrimeRunning=false;
+const VIDEO_MIN_VISIBLE_RATIO=0.15;
 
 const videoVisibilityObserver = new IntersectionObserver((entries) => {
     entries.forEach(entry => {
         const el = entry.target;
         if (!el || el.tagName !== 'VIDEO') return;
-        if (entry.isIntersecting) {
+        const visibleRatio=Number(entry.intersectionRatio||0);
+        const isVisible=entry.isIntersecting&&visibleRatio>=VIDEO_MIN_VISIBLE_RATIO;
+        if (shouldDisableVideoDiskCache()) {
+            if (isVisible) primeVideoPlayback(el);
+            else {
+              try{el.pause();}catch{}
+            }
+            return;
+        }
+        if (isVisible) {
             if (el.dataset.cacheHydrated === 'unloaded' || el.dataset.cacheHydrated === 'init') {
                 el.dataset.cacheHydrated = '';
                 hydrateVideoElementFromDiskCache(el).then(hit=>{
@@ -1300,30 +1317,10 @@ const videoVisibilityObserver = new IntersectionObserver((entries) => {
                 }).catch(()=>{scheduleVideoDiskCachePrime(el);});
             }
         } else {
-            if (el.dataset.cacheHydrated === 'init' || el.dataset.cacheHydrated === '') {
-                el.dataset.cacheHydrated = 'unloaded';
-            }
-            if (el.src && el.src !== FALLBACK_MEDIA) {
-                const src = el.src;
-                el.pause();
-                el.src = '';
-                el.removeAttribute('src');
-                el.load();
-                el.dataset.cacheHydrated = 'unloaded';
-
-                if (src.startsWith('blob:')) {
-                    const stillInUse = Array.from(document.querySelectorAll('video')).some(v => v !== el && v.src === src);
-                    if (!stillInUse) {
-                        URL.revokeObjectURL(src);
-                        for (const [k, v] of mediaObjectUrlCache.entries()) {
-                            if (v === src) mediaObjectUrlCache.delete(k);
-                        }
-                    }
-                }
-            }
+            try{el.pause();}catch{}
         }
     });
-}, { rootMargin: "0px" });
+}, { rootMargin: "0px", threshold:[0,VIDEO_MIN_VISIBLE_RATIO,0.5,1] });
 function shouldDiskCacheMediaUrl(raw=''){
   try{
     const u=new URL(raw);
@@ -1623,10 +1620,20 @@ function scheduleVideoDiskCachePrime(el){
 function bindVideoDiskCachePrime(el){
   if(!el||el.tagName!=='VIDEO'||el.dataset?.cachePrimeBound==='1') return;
   el.dataset.cachePrimeBound='1';
-  el.dataset.cacheHydrated = 'init';
+  if(shouldDisableVideoDiskCache()){
+    el.dataset.cacheHydrated='1';
+    el.dataset.cacheSource='';
+  }else{
+    el.dataset.cacheHydrated = 'init';
+  }
   videoVisibilityObserver.observe(el);
+  primeVideoPlayback(el);
 
   el.addEventListener('error', () => {
+    if(shouldDisableVideoDiskCache()){
+      advanceVideoFallbackCandidate(el);
+      return;
+    }
     const isHydrated = el.dataset.cacheHydrated === '1';
     if (isHydrated && el.src && el.src !== FALLBACK_MEDIA && el.src !== FALLBACK_AVI && !el.src.startsWith('blob:')) {
         const cands = JSON.parse(el.dataset.cands || '[]');
@@ -1696,11 +1703,15 @@ function initMediaDiskCacheHydration(){
         return;
       }
       if(m.type==='attributes'&&m.target&&/^VIDEO$/.test(m.target.tagName)){
-        if(m.attributeName==='src'){
+        if(!shouldDisableVideoDiskCache()&&m.attributeName==='src'){
           m.target.dataset.cacheHydrated='';
           m.target.dataset.cacheSource='';
         }
         bindVideoDiskCachePrime(m.target);
+        if(shouldDisableVideoDiskCache()){
+          primeVideoPlayback(m.target);
+          return;
+        }
         hydrateVideoElementFromDiskCache(m.target).then(hit=>{
           if(!hit) scheduleVideoDiskCachePrime(m.target);
         }).catch(()=>{scheduleVideoDiskCachePrime(m.target);});
@@ -2538,6 +2549,39 @@ function mediaAttrs(urls=[]){
   if(!rest.length) return `src="${esc(first)}"`;
   return `src="${esc(first)}" data-cands="${esc(JSON.stringify(rest))}" onerror="media_fallback(this)"`;
 }
+function mediaVideoAttrs(urls=[]){
+  const [first,...rest]=urls.filter(Boolean);
+  if(!first) return '';
+  const dedupedRest=rest.filter(u=>norm(u)!==norm(first));
+  if(!dedupedRest.length) return `src="${esc(first)}"`;
+  return `src="${esc(first)}" data-cands="${esc(JSON.stringify(dedupedRest))}"`;
+}
+function primeVideoPlayback(el){
+  if(!el||el.tagName!=='VIDEO') return;
+  el.preload='metadata';
+  el.autoplay=false;
+  el.removeAttribute('autoplay');
+  el.muted=false;
+  el.removeAttribute('muted');
+  el.setAttribute('playsinline','');
+  el.setAttribute('webkit-playsinline','');
+  try{el.pause();}catch{}
+}
+function advanceVideoFallbackCandidate(el){
+  if(!el||el.tagName!=='VIDEO') return false;
+  let cands=[];
+  try{cands=JSON.parse(el.dataset.cands||'[]');}catch{}
+  if(!Array.isArray(cands)||!cands.length) return false;
+  const next=norm(cands[0]||'');
+  el.dataset.cands=JSON.stringify(cands.slice(1));
+  if(!next) return false;
+  if(norm(el.getAttribute('src')||el.src)!==norm(next)){
+    el.setAttribute('src',next);
+    el.load();
+  }
+  primeVideoPlayback(el);
+  return true;
+}
 window.media_fallback=function(el){
   if (el && el.tagName === 'VIDEO') return;
   try{
@@ -3118,10 +3162,10 @@ window.calcPoll=async function(txid,btn){
 ═══════════════════════════════════════════════════ */
 function renderAttachEl(token){
   const wrap=document.createElement('div');
-  const info=attachmentPreviewCandidates(token),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls);
+  const info=attachmentPreviewCandidates(token),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls),videoAttrs=mediaVideoAttrs(info.urls);
   if(preview&&info.kind==='image'){wrap.className='tweet-media';wrap.innerHTML=`<img ${attrs} alt="Attachment" ${extractCidFromUrl(preview)?`src="${FALLBACK_MEDIA}"`:''}>`;}
   else if(preview&&info.kind==='audio'){wrap.className='tweet-media';wrap.innerHTML=`<audio controls ${attrs}></audio>`;}
-  else if(preview&&info.kind==='video'){wrap.className='tweet-media';wrap.innerHTML=`<video controls playsinline webkit-playsinline preload="metadata" ${attrs.replace(' onerror="media_fallback(this)"', '')} style="width:100%"></video>`;}
+  else if(preview&&info.kind==='video'){wrap.className='tweet-media';wrap.innerHTML=`<video controls playsinline webkit-playsinline preload="metadata" ${videoAttrs} style="width:100%"></video>`;}
   else if(preview&&info.kind==='embed'){wrap.className='tweet-media tweet-media-embed';wrap.innerHTML=`<iframe src="${esc(preview)}" frameborder="0" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" loading="lazy"></iframe>`;}
   else if(preview&&info.kind==='link'){wrap.className='link-card-slot';wrap.dataset.url=preview;loadLinkCards(wrap.parentElement||wrap);}
   else if(preview){wrap.className='tweet-media-file';wrap.innerHTML=`📎 <a href="${esc(preview)}" target="_blank" rel="noopener">${esc(info.raw.slice(0,60))}</a>`;}
@@ -3189,10 +3233,10 @@ function buildTweetEl(root, {profileCache={}, onReply, onThread, profileNav='mod
   }
   const mediaHtml=[];
   [...attachments,...root.files.map(f=>`${root.txId}/${f}`),...links].forEach(tok=>{
-    const info=attachmentPreviewCandidates(tok),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls);
+    const info=attachmentPreviewCandidates(tok),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls),videoAttrs=mediaVideoAttrs(info.urls);
     if(preview&&info.kind==='image') mediaHtml.push(`<div class="tweet-media"><img ${attrs} alt="" ${extractCidFromUrl(preview)?`src="${FALLBACK_MEDIA}"`:''}></div>`);
     else if(preview&&info.kind==='audio') mediaHtml.push(`<div class="tweet-media"><audio controls ${attrs}></audio></div>`);
-    else if(preview&&info.kind==='video') mediaHtml.push(`<div class="tweet-media"><video controls playsinline webkit-playsinline preload="metadata" ${attrs.replace(' onerror="media_fallback(this)"', '')} style="width:100%"></video></div>`);
+    else if(preview&&info.kind==='video') mediaHtml.push(`<div class="tweet-media"><video controls playsinline webkit-playsinline preload="metadata" ${videoAttrs} style="width:100%"></video></div>`);
     else if(preview&&info.kind==='embed') mediaHtml.push(`<div class="tweet-media tweet-media-embed"><iframe src="${esc(preview)}" frameborder="0" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" loading="lazy"></iframe></div>`);
     else if(preview&&info.kind==='link') mediaHtml.push(`<div class="link-card-slot" data-url="${esc(preview)}"></div>`);
     else if(preview) mediaHtml.push(`<div class="tweet-media-file">📎 <a href="${esc(preview)}" target="_blank" rel="noopener">${esc(tok.slice(0,60))}</a></div>`);
@@ -4389,10 +4433,10 @@ function renderComposeAttachments(){
   clr(prev);
   S.composeAttachments.forEach((tok,i)=>{
     const item=document.createElement('div');item.className='cm-attach-item';
-    const info=attachmentPreviewCandidates(tok),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls);
+    const info=attachmentPreviewCandidates(tok),preview=info.urls[0]||'',attrs=mediaAttrs(info.urls),videoAttrs=mediaVideoAttrs(info.urls);
     if(preview&&info.kind==='image') item.innerHTML=`<img ${attrs} alt="" ${extractCidFromUrl(preview)?`src="${FALLBACK_MEDIA}"`:''}><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
     else if(preview&&info.kind==='audio') item.innerHTML=`<audio controls ${attrs}></audio><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
-    else if(preview&&info.kind==='video') item.innerHTML=`<video controls playsinline webkit-playsinline preload="metadata" ${attrs.replace(' onerror="media_fallback(this)"', '')} style="max-height:100px;width:100%"></video><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
+    else if(preview&&info.kind==='video') item.innerHTML=`<video controls playsinline webkit-playsinline preload="metadata" ${videoAttrs} style="max-height:100px;width:100%"></video><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
     else if(info.kind==='retweet') item.innerHTML=`<div class="cm-attach-text">🔁 ${esc(norm(tok).slice(0,60))}</div><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
     else item.innerHTML=`<div class="cm-attach-text">${esc(norm(tok).slice(0,60))}</div><button class="cm-attach-rm" onclick="removeAttach(${i})">✕</button>`;
     prev.appendChild(item);
