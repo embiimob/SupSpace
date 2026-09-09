@@ -1300,10 +1300,10 @@ const videoVisibilityObserver = new IntersectionObserver((entries) => {
                 }).catch(()=>{scheduleVideoDiskCachePrime(el);});
             }
         } else {
-            if (el.dataset.cacheHydrated === 'init') {
+            if (el.dataset.cacheHydrated === 'init' || el.dataset.cacheHydrated === '') {
                 el.dataset.cacheHydrated = 'unloaded';
             }
-            if (el.dataset.cacheHydrated === '1' && el.src && el.src !== FALLBACK_MEDIA) {
+            if (el.src && el.src !== FALLBACK_MEDIA) {
                 const src = el.src;
                 el.pause();
                 el.src = '';
@@ -1312,9 +1312,12 @@ const videoVisibilityObserver = new IntersectionObserver((entries) => {
                 el.dataset.cacheHydrated = 'unloaded';
 
                 if (src.startsWith('blob:')) {
-                    URL.revokeObjectURL(src);
-                    for (const [k, v] of mediaObjectUrlCache.entries()) {
-                        if (v === src) mediaObjectUrlCache.delete(k);
+                    const stillInUse = Array.from(document.querySelectorAll('video')).some(v => v !== el && v.src === src);
+                    if (!stillInUse) {
+                        URL.revokeObjectURL(src);
+                        for (const [k, v] of mediaObjectUrlCache.entries()) {
+                            if (v === src) mediaObjectUrlCache.delete(k);
+                        }
                     }
                 }
             }
@@ -1530,6 +1533,7 @@ async function primeVideoElementDiskCache(el){
   for(const src of cands){
     try{
       const cachedUrl=await mediaCachedObjectUrlOnly(src);
+      if(el.dataset?.cacheHydrated==='unloaded') return;
       if(cachedUrl){
         el.dataset.cacheHydrated='1';
         el.dataset.cacheSource=src;
@@ -1543,9 +1547,11 @@ async function primeVideoElementDiskCache(el){
   for(const src of cands){
     try{
       await primeMediaUrlInDiskCache(src);
+      if(el.dataset?.cacheHydrated==='unloaded') return;
       el.dataset.cacheHydrated='1';
       el.dataset.cacheSource=src;
       const cachedUrl = await mediaCachedObjectUrlOnly(src);
+      if(el.dataset?.cacheHydrated==='unloaded') return;
       if (cachedUrl && norm(el.src) !== norm(cachedUrl)) el.src = cachedUrl;
       else if (!cachedUrl) el.src = src;
       cacheHit = true;
@@ -1577,6 +1583,7 @@ async function hydrateVideoElementFromDiskCache(el){
   for(const src of cands){
     try{
       const cached=await mediaCachedObjectUrlOnly(src);
+      if(el.dataset?.cacheHydrated==='unloaded') return false;
       if(cached){
           el.dataset.cacheHydrated='1';
           el.dataset.cacheSource=src;
