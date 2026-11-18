@@ -101,7 +101,9 @@ Import the same WIF in any of these apps and your identity (address and profile)
 
 ### testnet3 chain API (wallet/tx side via mempool.space)
 
-`MEMPOOL_API` default: `https://mempool.space/testnet/api`
+SupSpace starts with `https://mempool.space/testnet/api` and rolls over to the next of 47 regional Mempool nodes on timeouts or server/network errors. Later requests start with the replacement node. All nodes use `/testnet/api` (Testnet3), and each attempt has a 10-second timeout.
+
+Each open page shares one Mempool queue for all wallet requests, including retries, capped at 10 attempts per 10 seconds. Identical reads already in flight share a request. HTTP 429 pauses the queue for at least 10 seconds (or longer if the server exposes a longer `Retry-After`); it does not trigger node rollover.
 
 | Endpoint | Purpose in SupSpace |
 | --- | --- |
